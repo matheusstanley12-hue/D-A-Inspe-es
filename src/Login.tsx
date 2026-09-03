@@ -28,19 +28,11 @@ const Login = ({ onLogin, error }: { onLogin: (email: string, pass: string) => v
         </button>
 
         {/* Logo */}
-        <div className="flex justify-center mb-6 mt-4">
+        <div className="flex justify-center mb-8 mt-4">
           <img src="/logo.jpg" alt="D&A Inspeções Logo" className="h-28 object-contain" />
         </div>
 
-        {/* Title */}
-        <div className="text-center mb-8">
-          <h1 className="text-lg font-bold text-gray-900 leading-tight">
-            Central de Controle e<br />Planejamento
-          </h1>
-          <p className="text-[10px] font-bold text-gray-400 mt-2 tracking-widest uppercase">
-            SISTEMA INTELIGENTE DE INSPEÇÕES
-          </p>
-        </div>
+
 
         {/* Error message */}
         {error && (
@@ -114,13 +106,6 @@ const Login = ({ onLogin, error }: { onLogin: (email: string, pass: string) => v
             Esqueci minha senha
           </a>
         </div>
-      </div>
-
-      {/* Footer text */}
-      <div className="absolute bottom-6 text-center w-full z-10">
-        <p className="text-[10px] text-gray-400 uppercase tracking-wider">
-          D&A v1.0 | Desenvolvido por D&A Inspeções
-        </p>
       </div>
     </div>
   );

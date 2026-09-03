@@ -7,7 +7,28 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: #f3f4f6; /* light gray background like in the image */
+background-color: #f3f4f6; /* light gray background like in the image */
+}
+
+/* Dark Mode Targeted Trick */
+html.dark .invert-target {
+  filter: invert(1) hue-rotate(180deg);
+}
+html.dark .invert-target img,
+html.dark .invert-target video,
+html.dark .invert-target .leaflet-container,
+html.dark .invert-target .recharts-surface,
+html.dark .invert-target .custom-pin-icon {
+  filter: invert(1) hue-rotate(180deg);
+}
+
+/* Remove default scrollbars system-wide */
+* {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE and Edge */
+}
+*::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, Opera */
 }
 
 /* Custom styles for react-big-calendar to make it look modern and match the blue theme */
@@ -33,12 +54,7 @@ body {
   background-color: #f3f4f6;
 }
 
-.rbc-event {
-  background-color: transparent !important;
-  border: none !important;
-  color: inherit !important;
-  padding: 0 !important;
-}
+/* Removed global .rbc-event override so it uses the standard styles */
 
 .rbc-day-bg + .rbc-day-bg {
   border-left: 1px solid #e5e7eb;
