@@ -1,7 +1,11 @@
-import React, { useState } from 'react';
-import { Search, Plus, Filter, Eye, Download, CheckCircle, Clock, AlertCircle, FileText, X, MapPin, User, Calendar as CalendarIcon, File } from 'react-feather';
+import { useState } from 'react';
+import { Search, Filter, Eye, Download, CheckCircle, Clock, AlertCircle, FileText, X, MapPin, User, Calendar as CalendarIcon, File } from 'react-feather';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import { addSystemPDFHeader } from './utils/pdfHeader';
+import toast from 'react-hot-toast';
 
 // Mock Data
 const MOCK_ORDERS = [
@@ -59,6 +63,8 @@ const MOCK_ORDERS = [
 export default function ServiceOrdersView() {
   const [orders] = useState(MOCK_ORDERS);
   const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'in_progress' | 'pending'>('all');
+  const [showFilterBar, setShowFilterBar] = useState(false);
   const [selectedOS, setSelectedOS] = useState<typeof MOCK_ORDERS[0] | null>(null);
 
   const getStatusBadge = (status: string) => {
@@ -74,11 +80,73 @@ export default function ServiceOrdersView() {
     }
   };
 
-  const filteredOrders = orders.filter(order => 
-    order.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    order.inspector.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    order.client.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const handleDownloadOSPDF = async (order: typeof MOCK_ORDERS[0]) => {
+    try {
+      toast.success(`Gerando PDF da O.S. #${order.id}...`);
+      const doc = new jsPDF();
+      const startY = await addSystemPDFHeader(doc, `Ordem de Serviço #${order.id} - ${order.formType}`);
+
+      autoTable(doc, {
+        startY: startY + 5,
+        theme: 'grid',
+        headStyles: { fillColor: [0, 102, 204], fontStyle: 'bold' },
+        head: [['Campo', 'Detalhes']],
+        body: [
+          ['Número da O.S.', `OS-${order.id}`],
+          ['Tipo de Formulário', order.formType],
+          ['Inspetor Responsável', order.inspector],
+          ['Cliente / Local', order.client],
+          ['Data e Hora', format(order.date, 'dd/MM/yyyy HH:mm')],
+          ['Status', order.status === 'completed' ? 'Concluída' : order.status === 'in_progress' ? 'Em Andamento' : 'Pendente'],
+          ['Descrição', order.description]
+        ]
+      });
+
+      const finalY = (doc as any).lastAutoTable?.finalY || 130;
+
+      autoTable(doc, {
+        startY: finalY + 10,
+        theme: 'striped',
+        headStyles: { fillColor: [75, 85, 99], fontStyle: 'bold' },
+        head: [['Item / Verificação', 'Resultado']],
+        body: order.items.map(i => [i.name, i.status])
+      });
+
+      doc.save(`OS_${order.id}_${order.client.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`);
+      toast.success('PDF baixado com sucesso!');
+    } catch (err) {
+      console.error(err);
+      toast.error('Erro ao gerar o PDF da O.S.');
+    }
+  };
+
+  const filteredOrders = orders.filter(order => {
+    const matchesSearch = 
+      order.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      order.inspector.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      order.client.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      order.formType.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesStatus = statusFilter === 'all' || order.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
+
+  const handleExportCSV = () => {
+    const timestamp = format(new Date(), 'yyyyMMdd_HHmmss');
+    const headers = "ID;Data;Horario;Inspetor;Cliente;Tipo;Status\n";
+    const rows = filteredOrders.map(o => 
+      `OS-${o.id};${format(o.date, 'dd/MM/yyyy')};${format(o.date, 'HH:mm')};${o.inspector};${o.client};${o.formType};${o.status}`
+    ).join("\n");
+    const csvContent = "\uFEFF" + headers + rows;
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `Ordens_de_Servico_${timestamp}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast.success('Ordens exportadas em CSV com sucesso!');
+  };
 
   return (
     <div className="w-full max-w-7xl mx-auto pt-2 relative">
@@ -110,14 +178,55 @@ export default function ServiceOrdersView() {
         </div>
         
         <div className="flex items-center space-x-3 w-full md:w-auto">
-          <button className="flex items-center justify-center bg-white border border-gray-200 text-gray-700 px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-gray-50 transition-colors">
+          <button 
+            onClick={() => setShowFilterBar(!showFilterBar)}
+            className={`flex items-center justify-center border px-4 py-2.5 rounded-xl text-sm font-bold transition-colors ${
+              showFilterBar || statusFilter !== 'all' 
+                ? 'bg-blue-50 border-blue-300 text-blue-700' 
+                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+            }`}
+          >
             <Filter size={18} className="mr-2 text-gray-500" /> Filtros
           </button>
-          <button className="flex items-center justify-center bg-white border border-gray-200 text-gray-700 px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-gray-50 transition-colors">
-            <Download size={18} className="mr-2 text-gray-500" /> Exportar
+          <button 
+            onClick={handleExportCSV}
+            className="flex items-center justify-center bg-white border border-gray-200 text-gray-700 px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-gray-50 transition-colors"
+          >
+            <Download size={18} className="mr-2 text-gray-500" /> Exportar CSV
           </button>
         </div>
       </div>
+
+      {/* Filter Bar */}
+      {showFilterBar && (
+        <div className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm mb-6 flex flex-wrap items-center gap-2 animate-[fadeIn_0.2s_ease-out]">
+          <span className="text-xs font-bold text-gray-500 uppercase tracking-wider mr-2">Status:</span>
+          <button
+            onClick={() => setStatusFilter('all')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${statusFilter === 'all' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+          >
+            Todas ({orders.length})
+          </button>
+          <button
+            onClick={() => setStatusFilter('completed')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${statusFilter === 'completed' ? 'bg-emerald-600 text-white' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'}`}
+          >
+            Concluídas ({orders.filter(o => o.status === 'completed').length})
+          </button>
+          <button
+            onClick={() => setStatusFilter('in_progress')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${statusFilter === 'in_progress' ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}
+          >
+            Em Andamento ({orders.filter(o => o.status === 'in_progress').length})
+          </button>
+          <button
+            onClick={() => setStatusFilter('pending')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${statusFilter === 'pending' ? 'bg-amber-600 text-white' : 'bg-amber-50 text-amber-700 hover:bg-amber-100'}`}
+          >
+            Pendentes ({orders.filter(o => o.status === 'pending').length})
+          </button>
+        </div>
+      )}
 
       {/* Modern List */}
       <div className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden mb-12">
@@ -151,7 +260,7 @@ export default function ServiceOrdersView() {
                   <tr key={order.id} className="hover:bg-blue-50/50 transition-colors group">
                     <td className="px-6 py-5 whitespace-nowrap">
                       <div className="flex flex-col">
-                        <span className="text-sm font-black text-gray-900 group-hover:text-blue-600 transition-colors">{order.id}</span>
+                        <span className="text-sm font-black text-gray-900 group-hover:text-blue-600 transition-colors">OS-{order.id}</span>
                         <span className="text-xs font-semibold text-gray-500 mt-1">{order.formType}</span>
                       </div>
                     </td>
@@ -213,7 +322,7 @@ export default function ServiceOrdersView() {
             <div className="px-6 py-5 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
               <div>
                 <h2 className="text-xl font-extrabold text-gray-900">Detalhes da O.S.</h2>
-                <p className="text-sm font-bold text-blue-600 mt-1">{selectedOS.id}</p>
+                <p className="text-sm font-bold text-blue-600 mt-1">OS-{selectedOS.id}</p>
               </div>
               <button 
                 onClick={() => setSelectedOS(null)}
@@ -297,7 +406,10 @@ export default function ServiceOrdersView() {
             
             {/* Panel Footer */}
             <div className="p-6 border-t border-gray-100 bg-white">
-              <button className="w-full bg-blue-600 text-white font-bold text-sm py-3 rounded-xl hover:bg-blue-700 transition-colors shadow-sm flex justify-center items-center">
+              <button 
+                onClick={() => handleDownloadOSPDF(selectedOS)}
+                className="w-full bg-blue-600 text-white font-bold text-sm py-3 rounded-xl hover:bg-blue-700 transition-colors shadow-sm flex justify-center items-center"
+              >
                 <Download size={18} className="mr-2" /> Baixar PDF da O.S.
               </button>
             </div>

@@ -1,7 +1,6 @@
-import React, { useState } from 'react';
-import { Folder, FileText, ChevronLeft, Search, Calendar, Download, Filter, Eye } from 'react-feather';
+import { useState } from 'react';
+import { Folder, FileText, ChevronLeft, Search, Calendar, Download } from 'react-feather';
 import { format } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
 import toast from 'react-hot-toast';
 
 // Mock Data
@@ -53,7 +52,7 @@ export default function ReportsView() {
         });
 
         // Add some dummy content to simulate the report
-        const finalY = (doc as any).lastAutoTable.finalY || 65;
+        const finalY = (doc as any).lastAutoTable?.finalY || 65;
         doc.setFontSize(12);
         doc.setFont("helvetica", "bold");
         doc.text("Conclusão do Relatório", 14, finalY + 15);

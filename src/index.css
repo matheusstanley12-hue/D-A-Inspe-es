@@ -31,6 +31,22 @@ html.dark .invert-target .custom-pin-icon {
   display: none; /* Chrome, Safari, Opera */
 }
 
+.show-scrollbar {
+  scrollbar-width: auto;
+  -ms-overflow-style: auto;
+}
+.show-scrollbar::-webkit-scrollbar {
+  display: block;
+  width: 8px;
+}
+.show-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.show-scrollbar::-webkit-scrollbar-thumb {
+  background-color: #4b5563; /* tailwind gray-600 */
+  border-radius: 20px;
+}
+
 /* Custom styles for react-big-calendar to make it look modern and match the blue theme */
 .rbc-calendar {
   min-height: 700px;

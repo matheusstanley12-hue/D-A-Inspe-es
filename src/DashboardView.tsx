@@ -1,9 +1,13 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer,
-  PieChart, Pie, Cell, LineChart, Line, AreaChart, Area, ComposedChart 
+  PieChart, Pie, Cell, Line, ComposedChart 
 } from 'recharts';
 import { FileText, DollarSign, Activity, Users, ChevronDown, Download, Calendar } from 'react-feather';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import { addSystemPDFHeader } from './utils/pdfHeader';
+import toast from 'react-hot-toast';
 
 // --- MOCK DATA ---
 const YEARLY_CHART_DATA = {
@@ -85,12 +89,11 @@ const INSPECTOR_DATA = [
 // Cores Sóbrias / Corporativas
 const CORPORATE_COLORS = ['#1e3a8a', '#3b82f6', '#64748b', '#94a3b8', '#cbd5e1'];
 
-const EXPENSES_DATA = [
-  { name: 'João Silva', gasolina: 450, almoco: 320 },
-  { name: 'Matheus S.', gasolina: 380, almoco: 290 },
-  { name: 'Carlos', gasolina: 250, almoco: 180 },
-  { name: 'Maria S.', gasolina: 210, almoco: 200 },
-  { name: 'Ana Costa', gasolina: 180, almoco: 150 },
+const STATUS_DATA = [
+  { name: 'Finalizadas', qtd: 45 },
+  { name: 'Em Atendimento', qtd: 15 },
+  { name: 'Agendadas', qtd: 32 },
+  { name: 'Canceladas', qtd: 5 },
 ];
 
 // Custom Tooltip Sóbrio
@@ -117,6 +120,74 @@ const CorporateTooltip = ({ active, payload, label }: any) => {
 
 export default function DashboardView() {
   const [selectedYearlyClient, setSelectedYearlyClient] = useState('Geral');
+  const [selectedMonth, setSelectedMonth] = useState('Setembro');
+  const [isExporting, setIsExporting] = useState(false);
+
+  const handleExportPDF = async () => {
+    try {
+      setIsExporting(true);
+      toast.success('Gerando Relatório Gerencial em PDF...');
+      const doc = new jsPDF();
+      const startY = await addSystemPDFHeader(doc, `Relatório Gerencial de Indicadores - ${selectedMonth}`);
+
+      // Resumo Executivo
+      autoTable(doc, {
+        startY: startY + 5,
+        theme: 'grid',
+        headStyles: { fillColor: [0, 102, 204], fontStyle: 'bold' },
+        head: [['Indicador de Performance', 'Valor / Métrica']],
+        body: [
+          ['Total Inspecionado no Mês', '141 Ordens de Serviço'],
+          ['Cliente Destaque', 'CORACORTHE (45 O.S.)'],
+          ['Total de Reembolsos do Mês', 'R$ 2.610,00'],
+          ['Efetivo Técnico em Campo', '8 Inspetores Ativos'],
+          ['Meta de Aderência Operacional', '94.2% Concluído com Sucesso']
+        ]
+      });
+
+      let currentY = (doc as any).lastAutoTable?.finalY || 120;
+
+      // Volume por Cliente
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.text("Volume de Ordens por Cliente", 14, currentY + 12);
+
+      autoTable(doc, {
+        startY: currentY + 16,
+        theme: 'striped',
+        headStyles: { fillColor: [30, 58, 138], fontStyle: 'bold' },
+        head: [['Cliente', 'Volume (O.S.)', 'Participação']],
+        body: CLIENT_DATA.map(c => [
+          c.name,
+          String(c.qtd),
+          `${Math.round((c.qtd / 141) * 100)}%`
+        ])
+      });
+
+      currentY = (doc as any).lastAutoTable?.finalY || currentY + 40;
+
+      // Distribuição da Carga por Inspetor
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.text("Distribuição de Carga de Trabalho dos Inspetores", 14, currentY + 12);
+
+      autoTable(doc, {
+        startY: currentY + 16,
+        theme: 'striped',
+        headStyles: { fillColor: [75, 85, 99], fontStyle: 'bold' },
+        head: [['Inspetor', 'Ordens Concluídas no Mês']],
+        body: INSPECTOR_DATA.map(i => [i.name, `${i.qtd} O.S.`])
+      });
+
+      doc.save(`Relatorio_Gerencial_Indicadores_${selectedMonth}_${Date.now()}.pdf`);
+      toast.success('Relatório Gerencial exportado com sucesso!');
+    } catch (err: any) {
+      console.error(err);
+      toast.error('Erro ao gerar relatório em PDF.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   return (
     <div className="h-full flex flex-col w-full max-w-[1400px] mx-auto pt-4 animate-[fadeIn_0.3s_ease-out] bg-[#f4f7f9]">
@@ -131,11 +202,36 @@ export default function DashboardView() {
         </div>
         
         <div className="flex gap-3">
-          <button className="flex items-center gap-2 bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded text-sm font-semibold hover:bg-gray-50 transition-colors">
-            Mês: Setembro <ChevronDown size={14} />
-          </button>
-          <button className="flex items-center gap-2 bg-[#1e3a8a] text-white px-4 py-2 rounded text-sm font-semibold hover:bg-blue-900 transition-colors shadow-sm">
-            <Download size={14} /> Exportar PDF
+          <div className="relative">
+            <select
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(e.target.value)}
+              className="appearance-none bg-white border border-gray-300 text-gray-700 pl-4 pr-8 py-2 rounded text-sm font-semibold hover:bg-gray-50 transition-colors cursor-pointer outline-none shadow-sm"
+            >
+              <option value="Janeiro">Mês: Janeiro</option>
+              <option value="Fevereiro">Mês: Fevereiro</option>
+              <option value="Março">Mês: Março</option>
+              <option value="Abril">Mês: Abril</option>
+              <option value="Maio">Mês: Maio</option>
+              <option value="Junho">Mês: Junho</option>
+              <option value="Julho">Mês: Julho</option>
+              <option value="Agosto">Mês: Agosto</option>
+              <option value="Setembro">Mês: Setembro</option>
+              <option value="Outubro">Mês: Outubro</option>
+              <option value="Novembro">Mês: Novembro</option>
+              <option value="Dezembro">Mês: Dezembro</option>
+            </select>
+            <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+          </div>
+
+          <button 
+            onClick={handleExportPDF}
+            disabled={isExporting}
+            className={`flex items-center gap-2 bg-[#1e3a8a] text-white px-4 py-2 rounded text-sm font-semibold transition-colors shadow-sm ${
+              isExporting ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-900'
+            }`}
+          >
+            <Download size={14} /> {isExporting ? 'Exportando...' : 'Exportar PDF'}
           </button>
         </div>
       </div>
@@ -246,22 +342,20 @@ export default function DashboardView() {
             </div>
           </div>
 
-          {/* Gráfico 2: Custos de Inspetores */}
+          {/* Gráfico 2: Status das Ordens */}
           <div className="bg-white rounded border border-gray-200 shadow-sm p-6 flex flex-col">
             <div className="mb-6 border-b border-gray-100 pb-3">
-              <h2 className="text-base font-bold text-gray-800">Despesas por Inspetor</h2>
-              <p className="text-xs text-gray-500 mt-1">Composição de gastos aprovados (Gasolina e Almoço)</p>
+              <h2 className="text-base font-bold text-gray-800">Status das Inspeções</h2>
+              <p className="text-xs text-gray-500 mt-1">Acompanhamento do andamento das O.S. no mês</p>
             </div>
             <div className="flex-1 min-h-[300px]">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={EXPENSES_DATA} layout="vertical" margin={{ top: 0, right: 0, left: 10, bottom: 0 }} barSize={20}>
+                <BarChart data={STATUS_DATA} layout="vertical" margin={{ top: 0, right: 30, left: 10, bottom: 0 }} barSize={30}>
                   <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#e2e8f0" />
                   <XAxis type="number" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#64748b' }} />
                   <YAxis type="category" dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#64748b' }} />
                   <RechartsTooltip content={<CorporateTooltip />} cursor={{fill: '#f8fafc'}} />
-                  <Legend iconType="square" wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
-                  <Bar dataKey="gasolina" name="Gasolina (R$)" stackId="a" fill="#64748b" />
-                  <Bar dataKey="almoco" name="Almoço (R$)" stackId="a" fill="#94a3b8" />
+                  <Bar dataKey="qtd" name="Volume" fill="#64748b" radius={[0, 4, 4, 0]} label={{ position: 'right', fill: '#64748b', fontSize: 11, fontWeight: 'bold' }} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -289,7 +383,7 @@ export default function DashboardView() {
                     paddingAngle={2}
                     dataKey="qtd"
                   >
-                    {INSPECTOR_DATA.map((entry, index) => (
+                    {INSPECTOR_DATA.map((_, index) => (
                       <Cell key={`cell-${index}`} fill={CORPORATE_COLORS[index % CORPORATE_COLORS.length]} />
                     ))}
                   </Pie>

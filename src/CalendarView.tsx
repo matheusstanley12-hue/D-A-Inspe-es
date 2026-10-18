@@ -1,12 +1,12 @@
-import React, { useState } from 'react';
 import { 
-  TrendingUp, Users, CheckCircle, Activity, DollarSign, 
-  Map, Calendar as CalendarIcon, FileText, ChevronRight, AlertCircle, ArrowUpRight, ArrowDownRight, Clock
+  TrendingUp, Users, CheckCircle, Activity, 
+  Map, FileText, ChevronRight, AlertCircle, ArrowUpRight
 } from 'react-feather';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer,
-  BarChart, Bar, PieChart, Pie, Cell, Legend
+  PieChart, Pie, Cell, Legend
 } from 'recharts';
+import toast from 'react-hot-toast';
 
 const VOLUME_DATA = [
   { month: 'Jan', concluidas: 45, pendentes: 18 },
@@ -71,9 +71,7 @@ export default function CalendarView({ onNavigate }: { onNavigate?: (menu: strin
         <div className="flex items-center gap-3">
           <button 
             onClick={() => {
-              import('react-hot-toast').then(({ default: toast }) => {
-                toast.success('Relatório gerencial enviado para o seu e-mail.', { duration: 3000 });
-              });
+              toast.success('Relatório gerencial enviado para o seu e-mail.', { duration: 3000 });
             }}
             className="bg-white border border-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm font-bold hover:bg-gray-50 shadow-sm transition-colors flex items-center"
           >
@@ -215,7 +213,7 @@ export default function CalendarView({ onNavigate }: { onNavigate?: (menu: strin
                   dataKey="value"
                   stroke="none"
                 >
-                  {OS_STATUS_DATA.map((entry, index) => (
+                  {OS_STATUS_DATA.map((_, index) => (
                     <Cell key={`cell-${index}`} fill={STATUS_COLORS[index % STATUS_COLORS.length]} />
                   ))}
                 </Pie>

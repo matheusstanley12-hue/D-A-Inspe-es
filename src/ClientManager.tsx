@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
+import type { FormEvent } from 'react';
 import { Search, Plus, Edit2, Trash2, X, MapPin, Briefcase, Phone, Mail } from 'react-feather';
+import toast from 'react-hot-toast';
 
 // Mock Data
 const INITIAL_CLIENTS = [
@@ -29,7 +31,7 @@ export default function ClientManager() {
     setIsModalOpen(false);
   };
 
-  const handleSave = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSave = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     const clientData = {
@@ -42,10 +44,10 @@ export default function ClientManager() {
 
     if (editingClient) {
       setClients(clients.map(c => c.id === editingClient.id ? { ...c, ...clientData } : c));
-      import('react-hot-toast').then(({ toast }) => toast.success('Cliente atualizado!'));
+      toast.success('Cliente atualizado!');
     } else {
-      setClients([...clients, { id: Math.random().toString(36).substr(2, 9), ...clientData }]);
-      import('react-hot-toast').then(({ toast }) => toast.success('Cliente cadastrado com sucesso!'));
+      setClients([...clients, { id: Math.random().toString(36).slice(2, 11), ...clientData }]);
+      toast.success('Cliente cadastrado com sucesso!');
     }
     
     handleCloseModal();

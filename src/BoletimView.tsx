@@ -1,5 +1,9 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Folder, FileText, Download, Calendar as CalendarIcon, ChevronRight, ArrowLeft } from 'react-feather';
+import toast from 'react-hot-toast';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import { addSystemPDFHeader } from './utils/pdfHeader';
 
 // --- MOCK DATA ---
 const COMPANIES = ['CORACORTHE', 'Fábrica ABC', 'Mercado Central', 'Weir', 'JRDL', 'GALEÃO'];
@@ -20,14 +24,30 @@ export default function BoletimView() {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
 
+  const filteredBoletins = MOCK_BOLETINS.filter(b => {
+    const matchesCompany = !selectedCompany || b.empresa.toLowerCase().includes(selectedCompany.toLowerCase());
+    if (startDate || endDate) {
+      const parts = b.data.split('/');
+      if (parts.length === 3) {
+        const itemDate = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+        if (startDate && itemDate < new Date(startDate)) return false;
+        if (endDate && itemDate > new Date(endDate + 'T23:59:59')) return false;
+      }
+    }
+    return matchesCompany;
+  });
+
   const handleDownload = async (format: 'pdf' | 'excel') => {
     try {
-      const { toast } = await import('react-hot-toast');
+      if (filteredBoletins.length === 0) {
+        toast.error('Nenhum boletim encontrado no período selecionado.');
+        return;
+      }
       
       if (format === 'excel') {
         // Gera conteúdo do CSV baseado na tabela
         const headers = "O.S.;Inspetor;Equipamento;Data Realização;Horário;Empresa\n";
-        const rows = MOCK_BOLETINS.map(b => 
+        const rows = filteredBoletins.map(b => 
           `${b.os};${b.inspector};${b.equipamento};${b.data};${b.horario};${b.empresa}`
         ).join("\n");
         // Adiciona o BOM para o Excel reconhecer UTF-8
@@ -44,10 +64,6 @@ export default function BoletimView() {
         
         toast.success('Boletim gerado em EXCEL com sucesso!');
       } else if (format === 'pdf') {
-        const { default: jsPDF } = await import('jspdf');
-        const { default: autoTable } = await import('jspdf-autotable');
-        const { addSystemPDFHeader } = await import('./utils/pdfHeader');
-        
         const doc = new jsPDF();
         
         const startY = await addSystemPDFHeader(doc, `Boletim Diário - ${selectedCompany} (${selectedMonth})`);
@@ -55,7 +71,7 @@ export default function BoletimView() {
         const tableColumn = ["O.S.", "Inspetor", "Equipamento", "Data", "Horário", "Empresa"];
         const tableRows: string[][] = [];
 
-        MOCK_BOLETINS.forEach(b => {
+        filteredBoletins.forEach(b => {
           tableRows.push([
             b.os,
             b.inspector,
@@ -78,8 +94,9 @@ export default function BoletimView() {
         doc.save(`Boletim_${selectedCompany}_${selectedMonth}_${new Date().getTime()}.pdf`);
         toast.success('Boletim gerado em PDF com sucesso!');
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
+      toast.error('Erro ao gerar boletim: ' + (e?.message || 'Falha desconhecida'));
     }
   };
 
@@ -231,16 +248,24 @@ export default function BoletimView() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-100">
-              {MOCK_BOLETINS.map((boletim) => (
-                <tr key={boletim.id} className="hover:bg-blue-50/50 transition-colors">
-                  <td className="px-6 py-3 whitespace-nowrap text-sm font-bold text-blue-600">{boletim.os}</td>
-                  <td className="px-6 py-3 whitespace-nowrap text-sm font-medium text-gray-900">{boletim.inspector}</td>
-                  <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-600">{boletim.equipamento}</td>
-                  <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-900 font-semibold">{boletim.data}</td>
-                  <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-600">{boletim.horario}</td>
-                  <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-600">{boletim.empresa}</td>
+              {filteredBoletins.length > 0 ? (
+                filteredBoletins.map((boletim) => (
+                  <tr key={boletim.id} className="hover:bg-blue-50/50 transition-colors">
+                    <td className="px-6 py-3 whitespace-nowrap text-sm font-bold text-blue-600">{boletim.os}</td>
+                    <td className="px-6 py-3 whitespace-nowrap text-sm font-medium text-gray-900">{boletim.inspector}</td>
+                    <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-600">{boletim.equipamento}</td>
+                    <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-900 font-semibold">{boletim.data}</td>
+                    <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-600">{boletim.horario}</td>
+                    <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-600">{boletim.empresa}</td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={6} className="px-6 py-10 text-center text-sm text-gray-500">
+                    Nenhum boletim encontrado com os filtros selecionados.
+                  </td>
                 </tr>
-              ))}
+              )}
             </tbody>
           </table>
         </div>

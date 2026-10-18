@@ -1,14 +1,9 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Calendar as BigCalendar, dateFnsLocalizer } from 'react-big-calendar';
-import format from 'date-fns/format';
-import parse from 'date-fns/parse';
-import startOfWeek from 'date-fns/startOfWeek';
-import getDay from 'date-fns/getDay';
-import ptBR from 'date-fns/locale/pt-BR';
-import addMonths from 'date-fns/addMonths';
-import subMonths from 'date-fns/subMonths';
+import { format, parse, startOfWeek, getDay, addMonths, subMonths } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
-import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Check, Search, FileText, Tag, MapPin, Clock, User, X, Edit, Trash2, Copy, DollarSign, RefreshCw } from 'react-feather';
+import { ChevronLeft, ChevronRight, ChevronDown, Calendar as CalendarIcon, Check, Search, FileText, Tag, MapPin, Clock, User, X } from 'react-feather';
 
 const locales = {
   'pt-BR': ptBR,
@@ -91,6 +86,92 @@ const INSPECTORS = [
   { id: '3', name: 'Ana Costa', color: '#10b981' },
 ];
 
+// --- CUSTOM COMPONENTS DECLARED OUTSIDE RENDER ---
+const CustomToolbar = (toolbar: any) => {
+  const goToBack = () => {
+    toolbar.onNavigate('PREV');
+  };
+  const goToNext = () => {
+    toolbar.onNavigate('NEXT');
+  };
+  const goToCurrent = () => {
+    toolbar.onNavigate('TODAY');
+  };
+
+  const label = () => {
+    return (
+      <span className="text-xl font-medium text-gray-800 capitalize ml-2">
+        {toolbar.label}
+      </span>
+    );
+  };
+
+  return (
+    <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-white">
+      <div className="flex items-center gap-4">
+        <button className="text-gray-500 hover:bg-gray-100 p-1.5 rounded transition-colors">
+          <CalendarIcon size={18} />
+        </button>
+        
+        <button onClick={goToCurrent} className="text-gray-700 font-semibold text-sm hover:bg-gray-100 px-3 py-1.5 rounded transition-colors flex items-center">
+          Hoje <ChevronDown size={14} className="ml-1" />
+        </button>
+        
+        <div className="flex items-center gap-2">
+          <button onClick={goToBack} className="text-gray-500 hover:bg-gray-100 p-1 rounded transition-colors"><ChevronLeft size={20} /></button>
+          <button onClick={goToNext} className="text-gray-500 hover:bg-gray-100 p-1 rounded transition-colors"><ChevronRight size={20} /></button>
+          {label()}
+          <ChevronDown size={14} className="ml-1" />
+        </div>
+      </div>
+      
+      <div className="flex items-center gap-3">
+        <select 
+          value={toolbar.view}
+          onChange={(e) => toolbar.onView(e.target.value)}
+          className="bg-white border border-gray-300 rounded px-3 py-1.5 cursor-pointer text-sm font-semibold text-gray-700 hover:bg-gray-50 outline-none"
+        >
+          <option value="month">Mês</option>
+          <option value="week">Semana</option>
+          <option value="day">Dia</option>
+          <option value="agenda">Agenda</option>
+        </select>
+      </div>
+    </div>
+  );
+};
+
+const CustomEvent = ({ event }: any) => {
+  const isStriped = event.striped;
+  
+  return (
+    <div 
+      className={`group relative w-full h-full flex items-center px-1 py-0.5 rounded-sm border-l-4 shadow-sm text-xs cursor-pointer
+        ${event.color === 'red' ? 'bg-[#fdf4f4] border-[#d13438] text-[#d13438]' : 'bg-blue-50 border-blue-500 text-blue-700'}
+      `}
+      style={isStriped ? { backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 5px, rgba(209,52,56,0.1) 5px, rgba(209,52,56,0.1) 10px)' } : {}}
+    >
+      <span className="font-semibold mr-1 shrink-0">{format(event.start, 'HH:mm')}</span>
+      <span className="truncate font-medium">{event.title} <span className="text-[10px] opacity-70 ml-1">({event.inspector})</span></span>
+      
+      {/* Tooltip Hover - Only visible on desktop hover */}
+      <div className="absolute hidden lg:group-hover:block bottom-full left-1/2 -translate-x-1/2 mb-2 w-80 bg-white border border-gray-200 shadow-2xl rounded-md p-4 text-gray-700 z-[9999] text-[13px] font-normal cursor-default text-left">
+        <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-white border-b border-r border-gray-200 transform rotate-45"></div>
+        
+        <div className="relative z-10 space-y-2">
+          <div className="flex items-center"><div className="w-3 h-3 rounded-full bg-gray-400 mr-3 shrink-0"></div><span className="font-semibold mr-1">Status:</span> {event.status}</div>
+          <div className="flex items-center"><FileText size={14} className="text-gray-600 mr-3 shrink-0" /><span className="font-semibold mr-1">Ordem de Serviço:</span> {event.os}</div>
+          <div className="flex items-center"><Tag size={14} className="text-gray-600 mr-3 shrink-0" /><span className="font-semibold mr-1">Tipo de tarefa:</span> {event.taskType}</div>
+          <div className="flex items-center"><Check size={14} className="text-gray-600 mr-3 shrink-0" /><span className="font-semibold mr-1">Cliente:</span> {event.title}</div>
+          <div className="flex items-start"><MapPin size={14} className="text-gray-600 mr-3 mt-0.5 shrink-0" /><span className="font-semibold mr-1 shrink-0">Endereço:</span> <span className="line-clamp-2">{event.address}</span></div>
+          <div className="flex items-center"><Clock size={14} className="text-gray-600 mr-3 shrink-0" /><span className="font-semibold mr-1">Duração real:</span> {event.duration}</div>
+          <div className="flex items-center"><User size={14} className="text-gray-600 mr-3 shrink-0" /><span className="font-semibold mr-1">Responsável:</span> {event.inspector}</div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export default function OperationCalendarView() {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [miniCalendarMonth, setMiniCalendarMonth] = useState(new Date());
@@ -101,98 +182,6 @@ export default function OperationCalendarView() {
   const filteredEvents = MOCK_EVENTS.filter(e => 
     selectedInspector === 'all' || e.inspector === INSPECTORS.find(i => i.id === selectedInspector)?.name
   );
-
-  // --- CUSTOM COMPONENTS ---
-
-  const CustomToolbar = (toolbar: any) => {
-    const goToBack = () => {
-      toolbar.onNavigate('PREV');
-    };
-    const goToNext = () => {
-      toolbar.onNavigate('NEXT');
-    };
-    const goToCurrent = () => {
-      toolbar.onNavigate('TODAY');
-    };
-
-    const label = () => {
-      return (
-        <span className="text-xl font-medium text-gray-800 capitalize ml-2">
-          {toolbar.label}
-        </span>
-      );
-    };
-
-    return (
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-white">
-        <div className="flex items-center gap-4">
-          <button className="text-gray-500 hover:bg-gray-100 p-1.5 rounded transition-colors">
-            <CalendarIcon size={18} />
-          </button>
-          
-          <button onClick={goToCurrent} className="text-gray-700 font-semibold text-sm hover:bg-gray-100 px-3 py-1.5 rounded transition-colors flex items-center">
-            Hoje <ChevronDownIcon />
-          </button>
-          
-          <div className="flex items-center gap-2">
-            <button onClick={goToBack} className="text-gray-500 hover:bg-gray-100 p-1 rounded transition-colors"><ChevronLeft size={20} /></button>
-            <button onClick={goToNext} className="text-gray-500 hover:bg-gray-100 p-1 rounded transition-colors"><ChevronRight size={20} /></button>
-            {label()}
-            <ChevronDownIcon />
-          </div>
-        </div>
-        
-        <div className="flex items-center gap-3">
-          <select 
-            value={toolbar.view}
-            onChange={(e) => toolbar.onView(e.target.value)}
-            className="bg-white border border-gray-300 rounded px-3 py-1.5 cursor-pointer text-sm font-semibold text-gray-700 hover:bg-gray-50 outline-none"
-          >
-            <option value="month">Mês</option>
-            <option value="week">Semana</option>
-            <option value="day">Dia</option>
-            <option value="agenda">Agenda</option>
-          </select>
-        </div>
-      </div>
-    );
-  };
-
-  const ChevronDownIcon = () => (
-    <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-  );
-
-  const CustomEvent = ({ event }: any) => {
-    // Teams event style
-    const isStriped = event.striped;
-    
-    return (
-      <div 
-        className={`group relative w-full h-full flex items-center px-1 py-0.5 rounded-sm border-l-4 shadow-sm text-xs cursor-pointer
-          ${event.color === 'red' ? 'bg-[#fdf4f4] border-[#d13438] text-[#d13438]' : 'bg-blue-50 border-blue-500 text-blue-700'}
-        `}
-        style={isStriped ? { backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 5px, rgba(209,52,56,0.1) 5px, rgba(209,52,56,0.1) 10px)' } : {}}
-      >
-        <span className="font-semibold mr-1 shrink-0">{format(event.start, 'HH:mm')}</span>
-        <span className="truncate font-medium">{event.title} <span className="text-[10px] opacity-70 ml-1">({event.inspector})</span></span>
-        
-        {/* Tooltip Hover - Only visible on desktop hover */}
-        <div className="absolute hidden lg:group-hover:block bottom-full left-1/2 -translate-x-1/2 mb-2 w-80 bg-white border border-gray-200 shadow-2xl rounded-md p-4 text-gray-700 z-[9999] text-[13px] font-normal cursor-default text-left">
-          <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-white border-b border-r border-gray-200 transform rotate-45"></div>
-          
-          <div className="relative z-10 space-y-2">
-            <div className="flex items-center"><div className="w-3 h-3 rounded-full bg-gray-400 mr-3 shrink-0"></div><span className="font-semibold mr-1">Status:</span> {event.status}</div>
-            <div className="flex items-center"><FileText size={14} className="text-gray-600 mr-3 shrink-0" /><span className="font-semibold mr-1">Ordem de Serviço:</span> {event.os}</div>
-            <div className="flex items-center"><Tag size={14} className="text-gray-600 mr-3 shrink-0" /><span className="font-semibold mr-1">Tipo de tarefa:</span> {event.taskType}</div>
-            <div className="flex items-center"><Check size={14} className="text-gray-600 mr-3 shrink-0" /><span className="font-semibold mr-1">Cliente:</span> {event.title}</div>
-            <div className="flex items-start"><MapPin size={14} className="text-gray-600 mr-3 mt-0.5 shrink-0" /><span className="font-semibold mr-1 shrink-0">Endereço:</span> <span className="line-clamp-2">{event.address}</span></div>
-            <div className="flex items-center"><Clock size={14} className="text-gray-600 mr-3 shrink-0" /><span className="font-semibold mr-1">Duração real:</span> {event.duration}</div>
-            <div className="flex items-center"><User size={14} className="text-gray-600 mr-3 shrink-0" /><span className="font-semibold mr-1">Responsável:</span> {event.inspector}</div>
-          </div>
-        </div>
-      </div>
-    );
-  };
 
   // Mini Calendar Helper (Simple Month View)
   const renderMiniCalendar = () => {
@@ -271,7 +260,7 @@ export default function OperationCalendarView() {
         <div className="flex-1 overflow-y-auto p-2 custom-scrollbar">
           <div className="mt-2">
             <div className="flex items-center text-sm font-semibold text-gray-600 px-3 py-2 cursor-pointer hover:bg-gray-50 rounded">
-              <ChevronDownIcon /> Agenda dos Inspetores
+              <ChevronDown size={14} className="mr-1.5" /> Agenda dos Inspetores
             </div>
             <div className="mt-1 space-y-1 px-1">
               {INSPECTORS.map(insp => (

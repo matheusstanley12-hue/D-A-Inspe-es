@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { 
-  Search, Home, BarChart2, Calendar, Tool, Clock, Tv, Folder, LogOut,
-  CheckSquare, FileText, Settings, PlusSquare, CheckCircle, AlertTriangle, ChevronLeft, Menu, Users, Moon, Sun, FilePlus
+  Search, Home, BarChart2, Calendar, Folder, LogOut,
+  FileText, Settings, ChevronLeft, Menu, Users, Moon, Sun, FilePlus
 } from 'react-feather';
 import InspectorManager from './InspectorManager';
 import UserManager from './UserManager';
@@ -9,16 +9,21 @@ import CalendarView from './CalendarView';
 import ServiceOrdersView from './ServiceOrdersView';
 import ClientManager from './ClientManager';
 import FormulariosView from './FormulariosView';
+import logoUrl from './assets/logo.jpg';
 import ReportsView from './ReportsView';
 import DashboardView from './DashboardView';
 import BoletimView from './BoletimView';
 import OperationCalendarView from './OperationCalendarView';
+import ClientImpersonationView from './ClientImpersonationView';
 
 const AdminView = ({ onLogout }: { onLogout: () => void }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [activeMenu, setActiveMenu] = useState('Painel Operacional');
+  const [activeMenu, setActiveMenu] = useState('Indicadores');
   const [isGestaoExpanded, setIsGestaoExpanded] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(document.documentElement.classList.contains('dark'));
+  const [menuSearch, setMenuSearch] = useState('');
+
+  const matchesSearch = (text: string) => !menuSearch || text.toLowerCase().includes(menuSearch.toLowerCase());
 
   return (
     <div className="flex h-screen bg-[#f4f7f9] font-sans overflow-hidden">
@@ -33,7 +38,7 @@ const AdminView = ({ onLogout }: { onLogout: () => void }) => {
         <div className="p-4 flex items-center justify-between border-b border-gray-800">
           <div className="flex items-center space-x-3">
             <div className="bg-white p-1 rounded">
-              <img src="/logo.jpg" alt="D&A" className="h-6 w-6 object-contain" />
+              <img src={logoUrl} alt="D&A" className="h-6 w-6 object-contain" />
             </div>
             <div>
               <h2 className="text-white font-bold text-sm">D&A INSPEÇÕES</h2>
@@ -54,6 +59,13 @@ const AdminView = ({ onLogout }: { onLogout: () => void }) => {
             <input 
               type="text" 
               placeholder="Buscar menu..." 
+              value={menuSearch}
+              onChange={(e) => {
+                setMenuSearch(e.target.value);
+                if (e.target.value.trim()) {
+                  setIsGestaoExpanded(true);
+                }
+              }}
               className="w-full bg-[#1e293b] text-sm text-gray-200 placeholder-gray-500 rounded-md py-2 pl-9 pr-3 focus:outline-none focus:ring-1 focus:ring-blue-500 border border-gray-700"
             />
           </div>
@@ -63,122 +75,164 @@ const AdminView = ({ onLogout }: { onLogout: () => void }) => {
         <div className="flex-1 overflow-y-auto px-3 space-y-6 pb-6 custom-scrollbar mt-2">
           
           {/* MENU PRINCIPAL */}
-          <div>
-            <p className="px-3 text-[10px] font-bold text-gray-500 mb-2 uppercase tracking-wider">Menu Principal</p>
-            <button 
-              onClick={() => setActiveMenu('Painel Operacional')}
-              className={`w-full flex items-center px-3 py-2 rounded-md transition-colors text-left ${
-                activeMenu === 'Painel Operacional' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-[#1e293b] hover:text-white'
-              }`}
-            >
-              <Home size={16} className="mr-3 shrink-0" /> <span className="truncate">Painel de Controle</span>
-            </button>
+          {(matchesSearch('Painel de Controle') || matchesSearch('Calendário de Operação')) && (
+            <div>
+              <p className="px-3 text-[10px] font-bold text-gray-500 mb-2 uppercase tracking-wider">Menu Principal</p>
+              {matchesSearch('Painel de Controle') && (
+                <button 
+                  onClick={() => setActiveMenu('Painel Operacional')}
+                  className={`w-full flex items-center px-3 py-2 rounded-md transition-colors text-left ${
+                    activeMenu === 'Painel Operacional' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-[#1e293b] hover:text-white'
+                  }`}
+                >
+                  <Home size={16} className="mr-3 shrink-0" /> <span className="truncate">Painel de Controle</span>
+                </button>
+              )}
 
-            <button 
-              onClick={() => setActiveMenu('CalendarioOperacao')}
-              className={`w-full flex items-center px-3 py-2 rounded-md transition-colors mt-1 text-left ${
-                activeMenu === 'CalendarioOperacao' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-[#1e293b] hover:text-white'
-              }`}
-            >
-              <Calendar size={16} className="mr-3 shrink-0" /> <span className="truncate">Calendário de Operação</span>
-            </button>
-          </div>
+              {matchesSearch('Calendário de Operação') && (
+                <button 
+                  onClick={() => setActiveMenu('CalendarioOperacao')}
+                  className={`w-full flex items-center px-3 py-2 rounded-md transition-colors mt-1 text-left ${
+                    activeMenu === 'CalendarioOperacao' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-[#1e293b] hover:text-white'
+                  }`}
+                >
+                  <Calendar size={16} className="mr-3 shrink-0" /> <span className="truncate">Calendário de Operação</span>
+                </button>
+              )}
+            </div>
+          )}
 
           {/* OPERAÇÃO */}
-          <div>
-            <p className="px-3 text-[10px] font-bold text-gray-500 mb-2 uppercase tracking-wider">Operação</p>
-            <nav className="space-y-1">
-              <button 
-                onClick={() => setActiveMenu('Ordens')}
-                className={`w-full flex items-center px-3 py-2 rounded-md transition-colors text-left ${
-                  activeMenu === 'Ordens' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-[#1e293b] hover:text-white'
-                }`}
-              >
-                <FileText size={16} className="mr-3 shrink-0" /> <span className="truncate">Ordens de Serviço</span>
-              </button>
+          {(matchesSearch('Ordens de Serviço') || matchesSearch('Relatórios de Campo') || matchesSearch('Boletim') || matchesSearch('Indicadores') || matchesSearch('Formulários') || matchesSearch('Tela do Cliente')) && (
+            <div>
+              <p className="px-3 text-[10px] font-bold text-gray-500 mb-2 uppercase tracking-wider">Operação</p>
+              <nav className="space-y-1">
+                {matchesSearch('Ordens de Serviço') && (
+                  <button 
+                    onClick={() => setActiveMenu('Ordens')}
+                    className={`w-full flex items-center px-3 py-2 rounded-md transition-colors text-left ${
+                      activeMenu === 'Ordens' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-[#1e293b] hover:text-white'
+                    }`}
+                  >
+                    <FileText size={16} className="mr-3 shrink-0" /> <span className="truncate">Ordens de Serviço</span>
+                  </button>
+                )}
 
-              <button 
-                onClick={() => setActiveMenu('Relatorios')}
-                className={`w-full flex items-center px-3 py-2 rounded-md transition-colors text-left ${
-                  activeMenu === 'Relatorios' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-[#1e293b] hover:text-white'
-                }`}
-              >
-                <FileText size={16} className="mr-3 shrink-0" /> <span className="truncate">Relatórios de Campo</span>
-              </button>
+                {matchesSearch('Relatórios de Campo') && (
+                  <button 
+                    onClick={() => setActiveMenu('Relatorios')}
+                    className={`w-full flex items-center px-3 py-2 rounded-md transition-colors text-left ${
+                      activeMenu === 'Relatorios' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-[#1e293b] hover:text-white'
+                    }`}
+                  >
+                    <FileText size={16} className="mr-3 shrink-0" /> <span className="truncate">Relatórios de Campo</span>
+                  </button>
+                )}
 
-              <button 
-                onClick={() => setActiveMenu('Boletim')}
-                className={`w-full flex items-center px-3 py-2 rounded-md transition-colors text-left ${
-                  activeMenu === 'Boletim' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-[#1e293b] hover:text-white'
-                }`}
-              >
-                <Folder size={16} className="mr-3 shrink-0" /> <span className="truncate">Boletim</span>
-              </button>
+                {matchesSearch('Boletim') && (
+                  <button 
+                    onClick={() => setActiveMenu('Boletim')}
+                    className={`w-full flex items-center px-3 py-2 rounded-md transition-colors text-left ${
+                      activeMenu === 'Boletim' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-[#1e293b] hover:text-white'
+                    }`}
+                  >
+                    <Folder size={16} className="mr-3 shrink-0" /> <span className="truncate">Boletim</span>
+                  </button>
+                )}
 
-              <button 
-                onClick={() => setActiveMenu('Indicadores')}
-                className={`w-full flex items-center px-3 py-2 rounded-md transition-colors text-left ${
-                  activeMenu === 'Indicadores' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-[#1e293b] hover:text-white'
-                }`}
-              >
-                <BarChart2 size={16} className="mr-3 shrink-0" /> <span className="truncate">Indicadores</span>
-              </button>
+                {matchesSearch('Indicadores') && (
+                  <button 
+                    onClick={() => setActiveMenu('Indicadores')}
+                    className={`w-full flex items-center px-3 py-2 rounded-md transition-colors text-left ${
+                      activeMenu === 'Indicadores' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-[#1e293b] hover:text-white'
+                    }`}
+                  >
+                    <BarChart2 size={16} className="mr-3 shrink-0" /> <span className="truncate">Indicadores</span>
+                  </button>
+                )}
 
-              <button 
-                onClick={() => setActiveMenu('Formularios')}
-                className={`w-full flex items-center px-3 py-2 rounded-md transition-colors text-left ${
-                  activeMenu === 'Formularios' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-[#1e293b] hover:text-white'
-                }`}
-              >
-                <FilePlus size={16} className="mr-3 shrink-0" /> <span className="truncate">Formulários</span>
-              </button>
-            </nav>
-          </div>
+                {matchesSearch('Formulários') && (
+                  <button 
+                    onClick={() => setActiveMenu('Formularios')}
+                    className={`w-full flex items-center justify-between px-3 py-2 rounded-md transition-colors text-left ${
+                      activeMenu === 'Formularios' ? 'bg-blue-600 text-white font-semibold' : 'text-gray-400 hover:bg-[#1e293b] hover:text-white'
+                    }`}
+                  >
+                    <div className="flex items-center">
+                      <FilePlus size={16} className="mr-3 shrink-0" /> <span className="truncate">Formulários</span>
+                    </div>
+                    <span className="text-[10px] bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">
+                      Aba
+                    </span>
+                  </button>
+                )}
+
+                {matchesSearch('Tela do Cliente') && (
+                  <button 
+                    onClick={() => setActiveMenu('VisaoCliente')}
+                    className={`w-full flex items-center px-3 py-2 rounded-md transition-colors text-left ${
+                      activeMenu === 'VisaoCliente' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-[#1e293b] hover:text-white'
+                    }`}
+                  >
+                    <Users size={16} className="mr-3 shrink-0" /> <span className="truncate">Tela do Cliente</span>
+                  </button>
+                )}
+              </nav>
+            </div>
+          )}
 
           {/* GESTÃO (Collapsible) */}
-          <div className="mt-2">
-            <button 
-              onClick={() => setIsGestaoExpanded(!isGestaoExpanded)}
-              className="w-full flex items-center justify-between px-3 py-2 rounded-md transition-colors text-left text-gray-400 hover:bg-[#1e293b] hover:text-white"
-            >
-              <div className="flex items-center">
-                <Settings size={16} className="mr-3 shrink-0" />
-                <span className="truncate">Gestão</span>
-              </div>
-              <ChevronLeft size={16} className={`transition-transform ${isGestaoExpanded ? '-rotate-90' : ''}`} />
-            </button>
-            
-            {isGestaoExpanded && (
-              <nav className="space-y-1 mt-1">
-                <button 
-                  onClick={() => setActiveMenu('Clientes')}
-                  className={`w-full flex items-center pl-8 pr-3 py-2 rounded-md transition-colors text-left ${
-                    activeMenu === 'Clientes' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-[#1e293b] hover:text-white'
-                  }`}
-                >
-                  <Search size={16} className="mr-3 shrink-0" /> <span className="truncate">Gestão de Clientes</span>
-                </button>
-                
-                <button 
-                  onClick={() => setActiveMenu('Inspetores')}
-                  className={`w-full flex items-center pl-8 pr-3 py-2 rounded-md transition-colors text-left ${
-                    activeMenu === 'Inspetores' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-[#1e293b] hover:text-white'
-                  }`}
-                >
-                  <Users size={16} className="mr-3 shrink-0" /> <span className="truncate">Gestão de Inspetores</span>
-                </button>
+          {(matchesSearch('Gestão') || matchesSearch('Clientes') || matchesSearch('Inspetores') || matchesSearch('Usuários')) && (
+            <div className="mt-2">
+              <button 
+                onClick={() => setIsGestaoExpanded(!isGestaoExpanded)}
+                className="w-full flex items-center justify-between px-3 py-2 rounded-md transition-colors text-left text-gray-400 hover:bg-[#1e293b] hover:text-white"
+              >
+                <div className="flex items-center">
+                  <Settings size={16} className="mr-3 shrink-0" />
+                  <span className="truncate">Gestão</span>
+                </div>
+                <ChevronLeft size={16} className={`transition-transform ${isGestaoExpanded ? '-rotate-90' : ''}`} />
+              </button>
+              
+              {isGestaoExpanded && (
+                <nav className="space-y-1 mt-1">
+                  {matchesSearch('Clientes') && (
+                    <button 
+                      onClick={() => setActiveMenu('Clientes')}
+                      className={`w-full flex items-center pl-8 pr-3 py-2 rounded-md transition-colors text-left ${
+                        activeMenu === 'Clientes' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-[#1e293b] hover:text-white'
+                      }`}
+                    >
+                      <Search size={16} className="mr-3 shrink-0" /> <span className="truncate">Gestão de Clientes</span>
+                    </button>
+                  )}
+                  
+                  {matchesSearch('Inspetores') && (
+                    <button 
+                      onClick={() => setActiveMenu('Inspetores')}
+                      className={`w-full flex items-center pl-8 pr-3 py-2 rounded-md transition-colors text-left ${
+                        activeMenu === 'Inspetores' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-[#1e293b] hover:text-white'
+                      }`}
+                    >
+                      <Users size={16} className="mr-3 shrink-0" /> <span className="truncate">Gestão de Inspetores</span>
+                    </button>
+                  )}
 
-                <button 
-                  onClick={() => setActiveMenu('Usuarios')}
-                  className={`w-full flex items-center pl-8 pr-3 py-2 rounded-md transition-colors text-left ${
-                    activeMenu === 'Usuarios' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-[#1e293b] hover:text-white'
-                  }`}
-                >
-                  <Users size={16} className="mr-3 shrink-0" /> <span className="truncate">Gestão de Usuários</span>
-                </button>
-              </nav>
-            )}
-          </div>
+                  {matchesSearch('Usuários') && (
+                    <button 
+                      onClick={() => setActiveMenu('Usuarios')}
+                      className={`w-full flex items-center pl-8 pr-3 py-2 rounded-md transition-colors text-left ${
+                        activeMenu === 'Usuarios' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-[#1e293b] hover:text-white'
+                      }`}
+                    >
+                      <Users size={16} className="mr-3 shrink-0" /> <span className="truncate">Gestão de Usuários</span>
+                    </button>
+                  )}
+                </nav>
+              )}
+            </div>
+          )}
 
           {/* Outros menus virão aqui */}
         </div>
@@ -210,7 +264,7 @@ const AdminView = ({ onLogout }: { onLogout: () => void }) => {
             </button>
             
             <div className={`p-1 rounded-md border shadow-sm mr-3 ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-100'}`}>
-              <img src="/logo.jpg" alt="Logo" className="h-8 w-8 object-contain" />
+              <img src={logoUrl} alt="Logo" className="h-8 w-8 object-contain" />
             </div>
             
             <div className="mr-6">
@@ -218,14 +272,82 @@ const AdminView = ({ onLogout }: { onLogout: () => void }) => {
               <p className={`text-[9px] font-bold tracking-widest uppercase mt-0.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-400'}`}>SISTEMA INTELIGENTE DE INSPEÇÕES</p>
             </div>
 
-            <div className={`h-8 w-px mr-6 ${isDarkMode ? 'bg-gray-700' : 'bg-gray-200'}`}></div>
+            <div className={`h-8 w-px mr-4 ${isDarkMode ? 'bg-gray-700' : 'bg-gray-200'}`}></div>
 
-            <button 
-              onClick={() => setActiveMenu('Painel Operacional')}
-              className="bg-[#0066cc] hover:bg-[#0052a3] text-white px-5 py-2 rounded-full text-sm font-semibold flex items-center shadow-md transition-colors"
-            >
-              <Home size={16} className="mr-2" /> Início
-            </button>
+            {/* Top Navigation Tabs */}
+            <nav className="flex items-center space-x-1.5 sm:space-x-2">
+              <button 
+                onClick={() => setActiveMenu('Indicadores')}
+                className={`px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-full text-xs sm:text-sm font-semibold flex items-center transition-all ${
+                  activeMenu === 'Indicadores' 
+                    ? 'bg-[#0066cc] text-white shadow-md' 
+                    : isDarkMode 
+                      ? 'text-gray-300 hover:text-white hover:bg-gray-800' 
+                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                }`}
+              >
+                <Home size={15} className="mr-1.5 sm:mr-2 shrink-0" /> Início
+              </button>
+
+              <button 
+                onClick={() => setActiveMenu('Formularios')}
+                className={`px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-full text-xs sm:text-sm font-semibold flex items-center transition-all ${
+                  activeMenu === 'Formularios' 
+                    ? 'bg-[#0066cc] text-white shadow-md' 
+                    : isDarkMode 
+                      ? 'text-gray-300 hover:text-white hover:bg-gray-800' 
+                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                }`}
+              >
+                <FilePlus size={15} className="mr-1.5 sm:mr-2 shrink-0" /> Formulários
+                <span className={`ml-2 px-1.5 py-0.5 text-[10px] font-bold rounded-full ${
+                  activeMenu === 'Formularios'
+                    ? 'bg-white/20 text-white'
+                    : 'bg-blue-100 text-blue-700 dark:bg-blue-900/60 dark:text-blue-300'
+                }`}>
+                  Aba
+                </span>
+              </button>
+
+              <button 
+                onClick={() => setActiveMenu('Ordens')}
+                className={`hidden md:flex px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-full text-xs sm:text-sm font-semibold items-center transition-all ${
+                  activeMenu === 'Ordens' || activeMenu === 'Ordem de Servico'
+                    ? 'bg-[#0066cc] text-white shadow-md' 
+                    : isDarkMode 
+                      ? 'text-gray-300 hover:text-white hover:bg-gray-800' 
+                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                }`}
+              >
+                <FileText size={15} className="mr-1.5 sm:mr-2 shrink-0" /> Ordens
+              </button>
+
+              <button 
+                onClick={() => setActiveMenu('Boletim')}
+                className={`hidden lg:flex px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-full text-xs sm:text-sm font-semibold items-center transition-all ${
+                  activeMenu === 'Boletim' 
+                    ? 'bg-[#0066cc] text-white shadow-md' 
+                    : isDarkMode 
+                      ? 'text-gray-300 hover:text-white hover:bg-gray-800' 
+                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                }`}
+              >
+                <Folder size={15} className="mr-1.5 sm:mr-2 shrink-0" /> Boletim
+              </button>
+
+              <button 
+                onClick={() => setActiveMenu('Relatorios')}
+                className={`hidden xl:flex px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-full text-xs sm:text-sm font-semibold items-center transition-all ${
+                  activeMenu === 'Relatorios' 
+                    ? 'bg-[#0066cc] text-white shadow-md' 
+                    : isDarkMode 
+                      ? 'text-gray-300 hover:text-white hover:bg-gray-800' 
+                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                }`}
+              >
+                <BarChart2 size={15} className="mr-1.5 sm:mr-2 shrink-0" /> Relatórios
+              </button>
+            </nav>
           </div>
 
           {/* Right Side */}
@@ -276,6 +398,10 @@ const AdminView = ({ onLogout }: { onLogout: () => void }) => {
             <ServiceOrdersView />
           )}
 
+          {activeMenu === 'Ordem de Servico' && (
+            <ServiceOrdersView />
+          )}
+
           {activeMenu === 'Clientes' && (
             <ClientManager />
           )}
@@ -296,6 +422,10 @@ const AdminView = ({ onLogout }: { onLogout: () => void }) => {
             <FormulariosView />
           )}
 
+          {activeMenu === 'VisaoCliente' && (
+            <ClientImpersonationView onBack={() => setActiveMenu('Indicadores')} />
+          )}
+
           {activeMenu === 'Usuarios' && (
             <UserManager />
           )}
@@ -311,3 +441,4 @@ const AdminView = ({ onLogout }: { onLogout: () => void }) => {
 };
 
 export default AdminView;
+

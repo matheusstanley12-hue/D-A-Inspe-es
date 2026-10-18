@@ -1,13 +1,44 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import { Folder, ChevronRight, ChevronDown, ChevronLeft, Map, User, Settings, CheckCircle, Clock, Maximize2, X } from 'react-feather';
+import { ChevronRight, ChevronDown, ChevronLeft, Map, CheckCircle, Clock, Maximize2, X } from 'react-feather';
 import toast from 'react-hot-toast';
 
 // Fix for default marker icon in react-leaflet
 import icon from 'leaflet/dist/images/marker-icon.png';
 import iconShadow from 'leaflet/dist/images/marker-shadow.png';
+
+export interface TripMeal {
+  type: string;
+  value: number;
+}
+
+export interface TripReceipts {
+  fuel?: string | null;
+  food?: string[] | null;
+}
+
+export interface Trip {
+  id: string;
+  date: string;
+  status: string;
+  waypoints: string[];
+  coords: [number, number][];
+  distanceKm: number;
+  stops: number;
+  meals: TripMeal[];
+  receipts?: TripReceipts | null;
+}
+
+export interface Inspector {
+  id: number;
+  name: string;
+  status: string;
+  location: string;
+  currentTask: string | null;
+  trips: Trip[];
+}
 
 const createPinIcon = (color: string) => L.divIcon({
   className: 'custom-pin-icon',
@@ -29,7 +60,7 @@ let DefaultIcon = L.icon({
 L.Marker.prototype.options.icon = DefaultIcon;
 
 // Initial Data
-const INITIAL_DATA = [
+const INITIAL_DATA: Inspector[] = [
   {
     id: 1,
     name: 'João Silva',
@@ -307,14 +338,14 @@ export default function InspectorManager() {
           };
         } else {
           // Add - Gerando coordenadas fake baseadas no centro para visualização
-          const fakeCoords = validWaypoints.map((_, i) => [
+          const fakeCoords = validWaypoints.map(() => [
             -19.9208 + (Math.random() * 0.06 - 0.03),
             -43.9378 + (Math.random() * 0.06 - 0.03)
           ] as [number, number]);
 
           const calculatedDistance = calculateTotalRouteDistance(fakeCoords);
 
-          const newTrip = {
+          const newTrip: Trip = {
             id: 't' + Math.random(),
             date: routeForm.date,
             status: 'completed',
@@ -322,7 +353,8 @@ export default function InspectorManager() {
             coords: fakeCoords,
             distanceKm: calculatedDistance > 0 ? calculatedDistance : (validWaypoints.length * 2.5),
             stops: validWaypoints.length - 2 > 0 ? validWaypoints.length - 2 : 0,
-            meals: []
+            meals: [],
+            receipts: null
           };
           return { ...insp, trips: [newTrip, ...insp.trips] };
         }
@@ -838,7 +870,20 @@ export default function InspectorManager() {
                     toast.error('Preencha os campos obrigatórios (Cliente e Data).');
                     return;
                   }
-                  toast.success('Demanda programada com sucesso! (Sincronizado no App e Calendário)');
+
+                  setInspectors(prev => prev.map(insp => {
+                    if (insp.name === demandForm.inspector || demandForm.inspector === 'Todos') {
+                      return {
+                        ...insp,
+                        status: 'em_atendimento',
+                        location: demandForm.client,
+                        currentTask: `${demandForm.type} - ${demandForm.client}`
+                      };
+                    }
+                    return insp;
+                  }));
+
+                  toast.success(`Demanda programada para ${demandForm.inspector}! Sincronizado no App e Calendário.`);
                   setShowDemandModal(false);
                 }}
                 className="bg-[#0066cc] text-white px-6 py-2 rounded font-bold hover:bg-[#0052a3]"
