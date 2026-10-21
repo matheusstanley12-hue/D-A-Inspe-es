@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import { ChevronRight, ChevronDown, ChevronLeft, Map, CheckCircle, Clock, Maximize2, X } from 'react-feather';
+import { ChevronRight, ChevronDown, ChevronLeft, Map, CheckCircle, Clock, Maximize2, X, DollarSign } from 'react-feather';
 import toast from 'react-hot-toast';
+import { getExpenses, EXPENSES_CHANGE_EVENT, type InspectorExpense } from './stores/formulariosStore';
 
 // Fix for default marker icon in react-leaflet
 import icon from 'leaflet/dist/images/marker-icon.png';
@@ -155,6 +156,14 @@ export default function InspectorManager() {
   const [foodAllowance, setFoodAllowance] = useState(40.00); // Limite diário de alimentação
   
   const [inspectors, setInspectors] = useState(INITIAL_DATA);
+  const [expenses, setExpenses] = useState<InspectorExpense[]>(() => getExpenses());
+  const [selectedReceiptPreview, setSelectedReceiptPreview] = useState<string | null>(null);
+
+  useEffect(() => {
+    const syncExp = () => setExpenses(getExpenses());
+    window.addEventListener(EXPENSES_CHANGE_EVENT, syncExp);
+    return () => window.removeEventListener(EXPENSES_CHANGE_EVENT, syncExp);
+  }, []);
   
   // Controle de expansão
   const [expandedInspectorId, setExpandedInspectorId] = useState<number | null>(null);
@@ -469,6 +478,65 @@ export default function InspectorManager() {
                   <p className="text-sm text-blue-600/70 italic text-center py-4">Nenhum inspetor em atendimento.</p>
                 )}
               </div>
+            </div>
+
+            {/* Gastos Sincronizados do App Mobile */}
+            <div className="lg:col-span-2 bg-white rounded-xl p-5 border border-gray-200 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-4 pb-3 border-b border-gray-100">
+                <h3 className="font-extrabold text-gray-800 flex items-center gap-2">
+                  <DollarSign size={18} className="text-[#0066cc]" /> Gastos Enviados pelo App (Combustível, Alimentação e Hotel)
+                </h3>
+                <span className="text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-1 rounded-full">
+                  Total Sincronizado: R$ {expenses.reduce((acc, e) => acc + e.valor, 0).toFixed(2)}
+                </span>
+              </div>
+
+              {expenses.length === 0 ? (
+                <p className="text-sm text-gray-400 italic text-center py-6">
+                  Nenhum gasto enviado pelo aplicativo até o momento.
+                </p>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {expenses.map(exp => {
+                    const catLabel = exp.category === 'combustivel' ? 'Combustível' : exp.category === 'alimentacao' ? 'Alimentação' : 'Hotel';
+                    const catBadge = exp.category === 'combustivel'
+                      ? 'bg-amber-100 text-amber-800 border-amber-200'
+                      : exp.category === 'alimentacao'
+                      ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                      : 'bg-indigo-100 text-indigo-800 border-indigo-200';
+                    return (
+                      <div key={exp.id} className="p-3.5 rounded-xl border border-gray-200 bg-gray-50 flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${catBadge}`}>
+                              {catLabel}
+                            </span>
+                            <span className="text-[11px] font-bold text-gray-600 truncate">{exp.inspectorName}</span>
+                          </div>
+                          {exp.description && (
+                            <p className="text-xs font-semibold text-gray-800 truncate">{exp.description}</p>
+                          )}
+                          <p className="text-[10px] text-gray-400 mt-0.5">{exp.createdAt}</p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {exp.receiptUrl && (
+                            <img
+                              src={exp.receiptUrl}
+                              alt="Nota"
+                              onClick={() => setSelectedReceiptPreview(exp.receiptUrl || null)}
+                              className="w-10 h-10 rounded-lg object-cover border border-gray-300 cursor-pointer hover:opacity-80"
+                              title="Clique para ampliar comprovante"
+                            />
+                          )}
+                          <span className="font-extrabold text-sm text-gray-900">
+                            R$ {exp.valor.toFixed(2)}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         ) : (
@@ -937,6 +1005,24 @@ export default function InspectorManager() {
                 dashArray={fullscreenMapTrip.status === 'completed' ? "" : "10, 10"}
               />
             </MapContainer>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL PREVIEW COMPROVANTE */}
+      {selectedReceiptPreview && (
+        <div
+          className="fixed inset-0 bg-black/80 z-[110] flex items-center justify-center p-4"
+          onClick={() => setSelectedReceiptPreview(null)}
+        >
+          <div className="bg-white rounded-xl p-3 max-w-lg w-full relative" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-sm font-bold text-gray-800">Comprovante de Gasto</span>
+              <button onClick={() => setSelectedReceiptPreview(null)} className="p-1 text-gray-500 hover:text-gray-800">
+                <X size={20} />
+              </button>
+            </div>
+            <img src={selectedReceiptPreview} alt="Comprovante" className="w-full max-h-[75vh] object-contain rounded-lg" />
           </div>
         </div>
       )}

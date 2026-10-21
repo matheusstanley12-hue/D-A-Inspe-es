@@ -106,8 +106,15 @@ export default function ClientPortal({ onLogout, isImpersonating }: { onLogout: 
   const [selectedEvent, setSelectedEvent] = useState<any>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [activeTab, setActiveTab] = useState('Dashboard');
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(() => typeof window !== 'undefined' ? window.innerWidth >= 768 : false);
   const [isFornecedoresExpanded, setIsFornecedoresExpanded] = useState(false);
+
+  const selectClientTab = (tab: string) => {
+    setActiveTab(tab);
+    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+      setIsSidebarOpen(false);
+    }
+  };
 
   const generatePDF = async () => {
     const doc = new jsPDF();
@@ -213,10 +220,18 @@ export default function ClientPortal({ onLogout, isImpersonating }: { onLogout: 
       `}</style>
 
       {/* Sidebar + Main Layout */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden relative">
         
+        {/* Mobile Sidebar Backdrop Overlay */}
+        {isSidebarOpen && (
+          <div 
+            onClick={() => setIsSidebarOpen(false)} 
+            className="fixed inset-0 bg-black/60 backdrop-blur-xs z-40 md:hidden transition-opacity"
+          />
+        )}
+
         {/* Sidebar */}
-        <aside className={`bg-[#0f172a] text-white flex flex-col shrink-0 transition-all duration-300 ${isSidebarOpen ? 'w-64' : 'w-0 overflow-hidden'}`}>
+        <aside className={`bg-[#0f172a] text-white flex flex-col shrink-0 transition-all duration-300 fixed md:relative inset-y-0 left-0 z-50 md:z-20 shadow-2xl md:shadow-none ${isSidebarOpen ? 'w-64 translate-x-0' : 'w-0 -translate-x-full md:translate-x-0 overflow-hidden'}`}>
           <div className="p-4 border-b border-gray-800 flex items-center justify-between min-w-[256px]">
             <div className="flex items-center">
               <div className="bg-white p-1 rounded-md">
@@ -233,14 +248,14 @@ export default function ClientPortal({ onLogout, isImpersonating }: { onLogout: 
             <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-3">Menu Principal</div>
             
             <button 
-              onClick={() => setActiveTab('Dashboard')}
+              onClick={() => selectClientTab('Dashboard')}
               className={`w-full flex items-center px-3 py-2.5 rounded-lg font-medium text-sm transition-colors text-left ${activeTab === 'Dashboard' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}
             >
               <Activity size={18} className="mr-3 shrink-0" /> Visão Geral
             </button>
 
             <button 
-              onClick={() => setActiveTab('Calendario')}
+              onClick={() => selectClientTab('Calendario')}
               className={`w-full flex items-center px-3 py-2.5 rounded-lg font-medium text-sm transition-colors text-left ${activeTab === 'Calendario' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}
             >
               <CalendarIcon size={18} className="mr-3 shrink-0" /> Agenda
@@ -265,7 +280,7 @@ export default function ClientPortal({ onLogout, isImpersonating }: { onLogout: 
                   {FORNECEDORES_LIST.map((forn, index) => (
                     <button
                       key={index}
-                      onClick={() => setActiveTab(`Fornecedores-${forn}`)}
+                      onClick={() => selectClientTab(`Fornecedores-${forn}`)}
                       className={`w-full text-left px-3 py-2 text-xs rounded-md transition-colors ${activeTab === `Fornecedores-${forn}` ? 'bg-gray-800 text-white font-semibold' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/50'}`}
                     >
                       {forn}
@@ -276,14 +291,14 @@ export default function ClientPortal({ onLogout, isImpersonating }: { onLogout: 
             </div>
             
             <button 
-              onClick={() => setActiveTab('Relatorios')}
+              onClick={() => selectClientTab('Relatorios')}
               className={`w-full flex items-center px-3 py-2.5 rounded-lg font-medium text-sm transition-colors text-left ${activeTab === 'Relatorios' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}
             >
               <FileText size={18} className="mr-3 shrink-0" /> Relatórios
             </button>
 
             <button 
-              onClick={() => setActiveTab('Formularios')}
+              onClick={() => selectClientTab('Formularios')}
               className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium text-sm transition-colors text-left ${activeTab === 'Formularios' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}
             >
               <div className="flex items-center">
@@ -374,7 +389,7 @@ export default function ClientPortal({ onLogout, isImpersonating }: { onLogout: 
             </div>
           </header>
 
-          <main className="flex-1 overflow-auto p-6 md:p-8 relative invert-target">
+          <main className="flex-1 overflow-auto p-3 sm:p-6 md:p-8 relative invert-target">
         
         {activeTab === 'Dashboard' && (
           <ClientDashboardView />

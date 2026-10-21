@@ -3,7 +3,7 @@ import {
   Plus, Trash2, Eye, Edit2, Folder, X,
   Camera, Video, Paperclip, Type, AlignLeft,
   List, CheckSquare, ChevronDown, ChevronUp,
-  ArrowLeft, Globe, Lock, Calendar, Hash, Copy, CheckCircle, MessageSquare
+  ArrowLeft, Globe, Lock, Calendar, Hash, Copy, CheckCircle, MessageSquare, Download
 } from 'react-feather';
 import type { Icon } from 'react-feather';
 import type {
@@ -13,6 +13,7 @@ import {
   getForms, saveForms, FORMS_CHANGE_EVENT, newFormField,
   getFormResponses, RESPONSES_CHANGE_EVENT
 } from './stores/formulariosStore';
+import { generateCorporateFormResponsePDF } from './utils/pdfHeader';
 import toast from 'react-hot-toast';
 
 let formIdCounter = 0;
@@ -243,25 +244,25 @@ export default function FormulariosView({ readOnly = false }: { readOnly?: boole
     return (
       <div className="h-full flex flex-col w-full max-w-7xl mx-auto pt-2 animate-[fadeIn_0.2s_ease-out]">
         {/* Header */}
-        <div className="mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div className="mb-5 sm:mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-4">
           <div>
-            <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight flex items-center">
-              <Folder className="mr-3 text-blue-600" size={28} />
+            <h1 className="text-xl sm:text-3xl font-extrabold text-gray-900 tracking-tight flex items-center">
+              <Folder className="mr-2.5 sm:mr-3 text-blue-600 shrink-0" size={24} />
               Formulários de Inspeção
             </h1>
-            <p className="text-base text-gray-500 mt-1">
+            <p className="text-xs sm:text-base text-gray-500 mt-1">
               Crie e organize formulários em pastas — inspetores preenchem em campo pelo app mobile com suporte a fotos, vídeos e anexos.
             </p>
           </div>
           {!readOnly && (
-            <button onClick={handleCreate} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-sm transition-colors flex items-center shrink-0">
+            <button onClick={handleCreate} className="w-full sm:w-auto justify-center bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-sm transition-colors flex items-center shrink-0">
               <Plus size={18} className="mr-2" /> Criar Formulário
             </button>
           )}
         </div>
 
         {/* Stats row */}
-        <div className="grid grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
           {[
             { label: 'Total Modelos', value: forms.length, Icon: Folder, bg: 'bg-blue-50', ic: 'text-blue-600' },
             { label: 'Pastas / Categorias', value: categories.length - 1, Icon: Folder, bg: 'bg-purple-50', ic: 'text-purple-600' },
@@ -270,9 +271,9 @@ export default function FormulariosView({ readOnly = false }: { readOnly?: boole
           ].map(s => {
             const SI = s.Icon;
             return (
-              <div key={s.label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center space-x-3">
-                <div className={`w-10 h-10 ${s.bg} rounded-xl flex items-center justify-center shrink-0`}><SI size={20} className={s.ic} /></div>
-                <div><p className="text-2xl font-black text-gray-900">{s.value}</p><p className="text-xs font-bold text-gray-400 uppercase tracking-wider">{s.label}</p></div>
+              <div key={s.label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3 sm:p-4 flex items-center space-x-2.5 sm:space-x-3">
+                <div className={`w-9 h-9 sm:w-10 sm:h-10 ${s.bg} rounded-xl flex items-center justify-center shrink-0`}><SI size={18} className={s.ic} /></div>
+                <div className="min-w-0"><p className="text-lg sm:text-2xl font-black text-gray-900 leading-tight">{s.value}</p><p className="text-[10px] sm:text-xs font-bold text-gray-400 uppercase tracking-wider truncate">{s.label}</p></div>
               </div>
             );
           })}
@@ -408,12 +409,29 @@ export default function FormulariosView({ readOnly = false }: { readOnly?: boole
                 ) : (
                   responses.filter(r => r.formId === viewingResponsesFor.id).map(resp => (
                     <div key={resp.id} className="bg-gray-50 rounded-2xl p-5 border border-gray-200 space-y-3">
-                      <div className="flex items-center justify-between pb-3 border-b border-gray-200">
-                        <div className="flex items-center space-x-2">
-                          <span className="font-extrabold text-sm text-gray-900">{resp.inspectorName}</span>
-                          <span className="text-[10px] bg-emerald-100 text-emerald-700 font-bold px-2 py-0.5 rounded-full">Enviado</span>
+                      <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-gray-200">
+                        <div>
+                          <div className="flex items-center space-x-2">
+                            <span className="font-extrabold text-sm text-gray-900">{resp.inspectorName}</span>
+                            <span className="text-[10px] bg-emerald-100 text-emerald-700 font-bold px-2 py-0.5 rounded-full">Enviado</span>
+                          </div>
+                          <span className="text-xs text-gray-400">{new Date(resp.submittedAt).toLocaleString('pt-BR')}</span>
                         </div>
-                        <span className="text-xs text-gray-400">{new Date(resp.submittedAt).toLocaleString('pt-BR')}</span>
+                        <button
+                          onClick={async () => {
+                            try {
+                              toast.loading('Gerando Relatório Corporativo em PDF...', { id: 'pdf-form' });
+                              await generateCorporateFormResponsePDF(resp, viewingResponsesFor);
+                              toast.success('Relatório PDF corporativo baixado!', { id: 'pdf-form' });
+                            } catch {
+                              toast.error('Erro ao gerar o PDF.', { id: 'pdf-form' });
+                            }
+                          }}
+                          className="flex items-center gap-1.5 px-3.5 py-2 bg-[#071d3d] hover:bg-[#0d2d5e] text-white text-xs font-bold rounded-xl shadow-sm transition-colors cursor-pointer"
+                        >
+                          <Download size={14} />
+                          <span>Baixar Relatório PDF</span>
+                        </button>
                       </div>
 
                       {/* Respostas por campo */}
@@ -436,13 +454,18 @@ export default function FormulariosView({ readOnly = false }: { readOnly?: boole
                       {resp.attachments && resp.attachments.length > 0 && (
                         <div className="pt-2">
                           <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Evidências / Anexos ({resp.attachments.length})</p>
-                          <div className="grid grid-cols-2 gap-2">
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
                             {resp.attachments.map((att, ai) => (
-                              <div key={ai} className="flex items-center p-2 rounded-xl border border-gray-200 bg-white space-x-2">
-                                {att.type === 'photo' && <Camera size={14} className="text-orange-500 shrink-0" />}
-                                {att.type === 'video' && <Video size={14} className="text-red-500 shrink-0" />}
-                                {att.type === 'file' && <Paperclip size={14} className="text-blue-500 shrink-0" />}
-                                <span className="text-xs font-bold text-gray-700 truncate">{att.name}</span>
+                              <div key={ai} className="rounded-xl border border-gray-200 bg-white overflow-hidden shadow-xs flex flex-col">
+                                {att.type === 'photo' && att.url && att.url !== '#' && (
+                                  <img src={att.url} alt={att.name} className="w-full h-24 object-cover border-b border-gray-100" />
+                                )}
+                                <div className="flex items-center p-2 space-x-2">
+                                  {att.type === 'photo' && <Camera size={13} className="text-orange-500 shrink-0" />}
+                                  {att.type === 'video' && <Video size={13} className="text-red-500 shrink-0" />}
+                                  {att.type === 'file' && <Paperclip size={13} className="text-blue-500 shrink-0" />}
+                                  <span className="text-[11px] font-bold text-gray-700 truncate">{att.name}</span>
+                                </div>
                               </div>
                             ))}
                           </div>
@@ -481,24 +504,24 @@ export default function FormulariosView({ readOnly = false }: { readOnly?: boole
       <div className="h-full flex flex-col -mt-2" onClick={() => setShowTypeMenu(null)}>
 
         {/* Builder Top Bar */}
-        <div className={`${color.bg} text-white px-6 py-3 flex items-center justify-between shrink-0 -mx-6 mb-6`}>
-          <div className="flex items-center space-x-3">
-            <button onClick={() => { setMode('list'); setEditingForm(null); }} className="p-1.5 bg-white/20 hover:bg-white/30 rounded-lg transition-colors">
+        <div className={`${color.bg} text-white px-4 sm:px-6 py-3 flex items-center justify-between shrink-0 -mx-3 sm:-mx-6 mb-5 sm:mb-6`}>
+          <div className="flex items-center space-x-2.5 sm:space-x-3 min-w-0">
+            <button onClick={() => { setMode('list'); setEditingForm(null); }} className="p-1.5 bg-white/20 hover:bg-white/30 rounded-lg transition-colors shrink-0">
               <ArrowLeft size={16} />
             </button>
-            <div>
+            <div className="min-w-0">
               <p className="text-[10px] font-bold opacity-70 uppercase tracking-widest">Editor de Formulário</p>
-              <p className="text-sm font-extrabold truncate max-w-48 sm:max-w-80">{editingForm.name || 'Sem título'}</p>
+              <p className="text-xs sm:text-sm font-extrabold truncate max-w-36 sm:max-w-80">{editingForm.name || 'Sem título'}</p>
             </div>
           </div>
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-1.5 sm:space-x-2 shrink-0">
             <button onClick={() => setMode('preview')} className="hidden sm:flex items-center space-x-1.5 px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-xs font-bold transition-colors">
               <Eye size={14} /><span>Visualizar</span>
             </button>
-            <button onClick={() => saveForm(false)} className="px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-xs font-bold transition-colors">
+            <button onClick={() => saveForm(false)} className="px-2.5 sm:px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-xs font-bold transition-colors">
               Salvar
             </button>
-            <button onClick={() => saveForm(true)} className="flex items-center space-x-1.5 px-3 py-1.5 bg-white text-blue-700 hover:bg-blue-50 rounded-lg text-xs font-bold transition-colors shadow-sm">
+            <button onClick={() => saveForm(true)} className="flex items-center space-x-1 px-2.5 sm:px-3 py-1.5 bg-white text-blue-700 hover:bg-blue-50 rounded-lg text-xs font-bold transition-colors shadow-sm">
               <Globe size={13} /><span>Publicar</span>
             </button>
           </div>
@@ -510,12 +533,12 @@ export default function FormulariosView({ readOnly = false }: { readOnly?: boole
           {/* Form settings card */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
             <div className={`h-1.5 ${color.bg}`} />
-            <div className="p-6">
+            <div className="p-4 sm:p-6">
               <input
                 type="text" value={editingForm.name}
                 onChange={e => upd({ name: e.target.value })}
                 placeholder="Título do Formulário"
-                className="w-full text-2xl font-extrabold text-gray-900 border-0 border-b-2 border-transparent focus:border-blue-500 focus:outline-none pb-1 mb-3 transition-colors placeholder:text-gray-300 bg-transparent"
+                className="w-full text-xl sm:text-2xl font-extrabold text-gray-900 border-0 border-b-2 border-transparent focus:border-blue-500 focus:outline-none pb-1 mb-3 transition-colors placeholder:text-gray-300 bg-transparent"
               />
               <textarea
                 value={editingForm.description}
@@ -524,9 +547,9 @@ export default function FormulariosView({ readOnly = false }: { readOnly?: boole
                 rows={2}
                 className="w-full text-sm text-gray-600 border-0 border-b border-transparent focus:border-blue-300 focus:outline-none resize-none transition-colors placeholder:text-gray-300 mb-4 bg-transparent"
               />
-              <div className="flex items-center gap-4 pt-4 border-t border-gray-100">
-                <div className="flex-1">
-                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Categoria</label>
+              <div className="flex flex-wrap items-center gap-3 sm:gap-4 pt-4 border-t border-gray-100">
+                <div className="w-full sm:flex-1">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Pasta / Categoria</label>
                   <input type="text" value={editingForm.category} onChange={e => upd({ category: e.target.value })}
                     className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
                 </div>

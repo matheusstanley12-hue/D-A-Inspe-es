@@ -158,15 +158,18 @@ export function getForms(): InspectionForm[] {
 export function saveForms(forms: InspectionForm[]): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(forms));
   window.dispatchEvent(new Event(FORMS_CHANGE_EVENT));
+  pushSyncToServer({ forms, replaceForms: true });
 }
 
 export interface FormResponse {
   id: string;
   formId: string;
   formName: string;
+  category?: string;
   inspectorName: string;
   submittedAt: string;
   answers: Record<string, any>;
+  fieldsSnapshot?: FormField[];
   attachments?: {
     fieldId: string;
     type: 'photo' | 'video' | 'file';
@@ -178,25 +181,264 @@ export interface FormResponse {
 export const RESPONSES_CHANGE_EVENT = 'da_form_responses_changed';
 const RESPONSES_STORAGE_KEY = 'da_inspecoes_form_responses_v1';
 
+function getDefaultFormResponses(): FormResponse[] {
+  const defaultForms = getDefaultForms();
+  const f1 = defaultForms[0];
+  return [
+    {
+      id: 'resp_default_001',
+      formId: 'f1',
+      formName: 'Diligenciamento Q (Fabricação e Solda)',
+      category: 'Qualidade & Fabricação',
+      inspectorName: 'Matheus Stanley',
+      submittedAt: new Date().toISOString(),
+      fieldsSnapshot: f1?.fields || [],
+      answers: {
+        f1_1: 'OV-2026-0842 / CORACORTHE',
+        f1_2: '48',
+        f1_3: 'DES-A754615 Rev.02',
+        f1_4: '705275-ESTRUTURAL',
+        f1_5: 'Conforme',
+        f1_6: 'Aprovado',
+        f1_8: 'Inspeção dimensional e visual de solda concluída em 100% do lote. Cordões de solda contínuos, isentos de trincas, mordeduras ou porosidades superficiais. Rastreabilidade de matéria-prima validada conforme certificado de usina.',
+      },
+      attachments: [
+        {
+          fieldId: 'f1_7',
+          type: 'photo',
+          name: 'Inspecao_Visual_Solda_01.jpg',
+          url: 'https://images.unsplash.com/photo-1504917595217-d4dc5ebe6122?w=800&q=80',
+        },
+        {
+          fieldId: 'f1_7',
+          type: 'photo',
+          name: 'Controle_Dimensional_Peca_02.jpg',
+          url: 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?w=800&q=80',
+        },
+      ],
+    },
+  ];
+}
+
 export function getFormResponses(formId?: string): FormResponse[] {
   try {
     const stored = localStorage.getItem(RESPONSES_STORAGE_KEY);
     if (stored) {
       const all: FormResponse[] = JSON.parse(stored);
-      if (formId) return all.filter(r => r.formId === formId);
-      return all;
+      if (all.length > 0) {
+        if (formId) return all.filter(r => r.formId === formId);
+        return all;
+      }
     }
   } catch { /* ignore */ }
-  return [];
+  const defaults = getDefaultFormResponses();
+  try {
+    localStorage.setItem(RESPONSES_STORAGE_KEY, JSON.stringify(defaults));
+  } catch { /* ignore */ }
+  if (formId) return defaults.filter(r => r.formId === formId);
+  return defaults;
 }
 
 export function saveFormResponse(response: FormResponse): void {
   try {
     const existing = getFormResponses();
-    const updated = [response, ...existing];
+    const updated = [response, ...existing.filter(r => r.id !== response.id)];
     localStorage.setItem(RESPONSES_STORAGE_KEY, JSON.stringify(updated));
     window.dispatchEvent(new Event(RESPONSES_CHANGE_EVENT));
+    pushSyncToServer({ responses: updated });
   } catch { /* ignore */ }
+}
+
+// ============================================================
+// Gastos de Campo (Combustível, Alimentação, Hotel)
+// ============================================================
+export type ExpenseCategory = 'combustivel' | 'alimentacao' | 'hotel';
+
+export interface InspectorExpense {
+  id: string;
+  category: ExpenseCategory;
+  valor: number;
+  description: string;
+  inspectorName: string;
+  createdAt: string;
+  receipt: boolean;
+  receiptUrl?: string;
+  receiptName?: string;
+}
+
+export const EXPENSES_CHANGE_EVENT = 'da_expenses_changed';
+const EXPENSES_STORAGE_KEY = 'da_inspecoes_expenses_v1';
+
+export function getExpenses(): InspectorExpense[] {
+  try {
+    const stored = localStorage.getItem(EXPENSES_STORAGE_KEY);
+    if (stored) return JSON.parse(stored) as InspectorExpense[];
+  } catch { /* ignore */ }
+  return [];
+}
+
+export function saveExpense(expense: InspectorExpense): void {
+  try {
+    const existing = getExpenses();
+    const updated = [expense, ...existing.filter(e => e.id !== expense.id)];
+    localStorage.setItem(EXPENSES_STORAGE_KEY, JSON.stringify(updated));
+    window.dispatchEvent(new Event(EXPENSES_CHANGE_EVENT));
+    pushSyncToServer({ expenses: updated });
+  } catch { /* ignore */ }
+}
+
+// ============================================================
+// Sincronização em Tempo Real (App Mobile <-> Sistema Web)
+// ============================================================
+const DEFAULT_SERVER_URLS = [
+  typeof window !== 'undefined' && window.location.origin.startsWith('http') && !window.location.origin.includes('localhost')
+    ? `${window.location.origin}/api/sync`
+    : null,
+  'http://10.10.131.94:5173/api/sync',
+  'http://localhost:5173/api/sync',
+].filter(Boolean) as string[];
+
+export function getSyncServerUrl(): string {
+  return localStorage.getItem('da_sync_server_url') || 'http://10.10.131.94:5173';
+}
+
+export function setSyncServerUrl(url: string): void {
+  const clean = url.trim().replace(/\/+$/, '').replace(/\/api\/sync$/, '');
+  localStorage.setItem('da_sync_server_url', clean);
+  syncFromServer();
+}
+
+function getCandidateSyncEndpoints(): string[] {
+  const custom = localStorage.getItem('da_sync_server_url');
+  const list: string[] = [];
+  if (custom) {
+    const clean = custom.trim().replace(/\/+$/, '').replace(/\/api\/sync$/, '');
+    list.push(`${clean}/api/sync`);
+  }
+  for (const u of DEFAULT_SERVER_URLS) {
+    if (!list.includes(u)) list.push(u);
+  }
+  return list;
+}
+
+export async function pushSyncToServer(payload: {
+  forms?: InspectionForm[];
+  replaceForms?: boolean;
+  responses?: FormResponse[];
+  expenses?: InspectorExpense[];
+}): Promise<boolean> {
+  const endpoints = getCandidateSyncEndpoints();
+  for (const url of endpoints) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 2500);
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      if (res.ok) {
+        const data = await res.json();
+        applyServerSyncData(data);
+        return true;
+      }
+    } catch {
+      // Tenta o próximo endpoint
+    }
+  }
+  return false;
+}
+
+export async function syncFromServer(): Promise<boolean> {
+  const endpoints = getCandidateSyncEndpoints();
+  for (const url of endpoints) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 2500);
+      const res = await fetch(url, { signal: controller.signal });
+      clearTimeout(timer);
+      if (res.ok) {
+        const data = await res.json();
+        applyServerSyncData(data);
+        // Se o servidor ainda estiver vazio mas este dispositivo tiver dados locais, envia ao servidor
+        if ((!data.forms || data.forms.length === 0) && getForms().length > 0) {
+          await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              forms: getForms(),
+              responses: getFormResponses(),
+              expenses: getExpenses(),
+            }),
+          });
+        }
+        return true;
+      }
+    } catch {
+      // Tenta o próximo endpoint
+    }
+  }
+  return false;
+}
+
+function applyServerSyncData(data: any): void {
+  if (!data) return;
+
+  if (Array.isArray(data.forms) && data.forms.length > 0) {
+    const currentStr = localStorage.getItem(STORAGE_KEY);
+    const nextStr = JSON.stringify(data.forms);
+    if (currentStr !== nextStr) {
+      localStorage.setItem(STORAGE_KEY, nextStr);
+      window.dispatchEvent(new Event(FORMS_CHANGE_EVENT));
+    }
+  }
+
+  if (Array.isArray(data.responses)) {
+    const localResponses = getFormResponses();
+    const map = new Map<string, FormResponse>();
+    for (const r of localResponses) map.set(r.id, r);
+    for (const r of data.responses) map.set(r.id, r);
+    const merged = Array.from(map.values()).sort(
+      (a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime()
+    );
+    const currentStr = localStorage.getItem(RESPONSES_STORAGE_KEY);
+    const nextStr = JSON.stringify(merged);
+    if (currentStr !== nextStr) {
+      localStorage.setItem(RESPONSES_STORAGE_KEY, nextStr);
+      window.dispatchEvent(new Event(RESPONSES_CHANGE_EVENT));
+    }
+  }
+
+  if (Array.isArray(data.expenses)) {
+    const localExpenses = getExpenses();
+    const map = new Map<string, InspectorExpense>();
+    for (const e of localExpenses) map.set(e.id, e);
+    for (const e of data.expenses) map.set(e.id, e);
+    const merged = Array.from(map.values()).sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+    const currentStr = localStorage.getItem(EXPENSES_STORAGE_KEY);
+    const nextStr = JSON.stringify(merged);
+    if (currentStr !== nextStr) {
+      localStorage.setItem(EXPENSES_STORAGE_KEY, nextStr);
+      window.dispatchEvent(new Event(EXPENSES_CHANGE_EVENT));
+    }
+  }
+}
+
+// Iniciar polling automático e escuta entre abas
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (e) => {
+    if (e.key === STORAGE_KEY) window.dispatchEvent(new Event(FORMS_CHANGE_EVENT));
+    if (e.key === RESPONSES_STORAGE_KEY) window.dispatchEvent(new Event(RESPONSES_CHANGE_EVENT));
+    if (e.key === EXPENSES_STORAGE_KEY) window.dispatchEvent(new Event(EXPENSES_CHANGE_EVENT));
+  });
+
+  // Sincronizar a cada 3 segundos
+  setTimeout(() => { syncFromServer(); }, 500);
+  setInterval(() => { syncFromServer(); }, 3000);
 }
 
 export function newFormField(type: FieldType = 'text'): FormField {

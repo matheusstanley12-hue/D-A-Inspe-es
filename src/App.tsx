@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Capacitor } from '@capacitor/core';
 import Login from './Login';
 import AdminView from './AdminView';
 import InspectorMobileApp from './InspectorMobileApp';
@@ -6,11 +7,28 @@ import ClientPortal from './ClientPortal';
 import toast, { Toaster } from 'react-hot-toast';
 import { supabase } from './supabaseClient';
 
+function checkIsMobileApp(): boolean {
+  if (typeof window === 'undefined') return false;
+  return (
+    Capacitor.isNativePlatform() ||
+    window.innerWidth < 768 ||
+    /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+  );
+}
+
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [userRole, setUserRole] = useState<'gestor' | 'inspetor' | 'cliente' | null>(null);
+  const [userEmail, setUserEmail] = useState('');
   const [loginError, setLoginError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [isMobileApp, setIsMobileApp] = useState(checkIsMobileApp);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobileApp(checkIsMobileApp());
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   useEffect(() => {
     // Check if there is an active Supabase session
@@ -19,6 +37,7 @@ function App() {
         const metadataRole = session.user.user_metadata?.role;
         const role = metadataRole || (session.user.email?.includes('inspetor') ? 'inspetor' : session.user.email?.includes('cliente') ? 'cliente' : 'gestor');
         setUserRole(role);
+        setUserEmail(session.user.email || '');
         setIsAuthenticated(true);
       }
     }).catch((err) => {
@@ -30,6 +49,7 @@ function App() {
         const metadataRole = session.user.user_metadata?.role;
         const role = metadataRole || (session.user.email?.includes('inspetor') ? 'inspetor' : session.user.email?.includes('cliente') ? 'cliente' : 'gestor');
         setUserRole(role);
+        setUserEmail(session.user.email || '');
         setIsAuthenticated(true);
       }
     });
@@ -42,7 +62,7 @@ function App() {
   const handleLogin = async (email: string, pass: string) => {
     setLoginError('');
     if (!email.trim() || !pass.trim()) {
-      setLoginError('Por favor, preencha o e-mail e a senha.');
+      setLoginError('Por favor, preencha o usuário e a senha.');
       return;
     }
 
@@ -95,6 +115,7 @@ function App() {
 
     if (authenticated) {
       setUserRole(determinedRole);
+      setUserEmail(email.trim());
       setIsAuthenticated(true);
       setLoginError('');
       toast.success(`Bem-vindo ao D&A Inspeções! Acesso liberado.`);
@@ -103,17 +124,29 @@ function App() {
     }
   };
 
-  const handleLogout = async () => {
+  const handleLogout = () => {
+    // Limpa estado imediatamente (sem travar aguardando rede do Supabase)
+    setIsAuthenticated(false);
+    setUserRole(null);
+    setUserEmail('');
+    setLoginError('');
+
+    // Remove qualquer sessão local do Supabase para evitar relogin automático
     try {
-      await supabase.auth.signOut();
-    } catch (e) {
-      console.error('Logout error:', e);
-    } finally {
-      setIsAuthenticated(false);
-      setUserRole(null);
-      setLoginError('');
-      toast('Você saiu do sistema.', { icon: '👋' });
+      Object.keys(localStorage).forEach((key) => {
+        if (key.startsWith('sb-')) {
+          localStorage.removeItem(key);
+        }
+      });
+    } catch {
+      // ignore
     }
+
+    supabase.auth.signOut({ scope: 'local' }).catch((e) => {
+      console.warn('Logout warning:', e);
+    });
+
+    toast('Você saiu do sistema.', { icon: '👋' });
   };
 
   const handleSelectRole = (role: 'gestor' | 'inspetor' | 'cliente') => {
@@ -136,14 +169,16 @@ function App() {
   return (
     <>
       <Toaster position="top-right" toastOptions={{ style: { fontWeight: 'bold' } }} />
-      {isAuthenticated && userRole === 'gestor' ? (
-        <AdminView onLogout={handleLogout} />
-      ) : isAuthenticated && userRole === 'inspetor' ? (
-        <InspectorMobileApp onLogout={handleLogout} />
-      ) : isAuthenticated && userRole === 'cliente' ? (
-        <ClientPortal onLogout={handleLogout} />
+      {isAuthenticated ? (
+        isMobileApp || userRole === 'inspetor' ? (
+          <InspectorMobileApp onLogout={handleLogout} userEmail={userEmail} />
+        ) : userRole === 'cliente' ? (
+          <ClientPortal onLogout={handleLogout} />
+        ) : (
+          <AdminView onLogout={handleLogout} />
+        )
       ) : (
-        <Login onLogin={handleLogin} error={loginError} onSelectRole={handleSelectRole} />
+        <Login onLogin={handleLogin} error={loginError} onSelectRole={handleSelectRole} isMobileApp={isMobileApp} />
       )}
     </>
   );
