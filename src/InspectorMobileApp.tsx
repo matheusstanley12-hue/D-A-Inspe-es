@@ -186,28 +186,20 @@ export default function InspectorMobileApp({ onLogout }: { onLogout: () => void 
     : publishedForms.filter(f => (f.category || 'Geral') === selectedFolder);
 
   return (
-    <div className="flex justify-center bg-gray-900 min-h-screen">
-      {/* Mobile App Container */}
-      <div className="w-full max-w-[400px] bg-gray-50 flex flex-col h-screen shadow-2xl overflow-hidden relative">
-        
-        {/* Mobile Status Bar */}
-        <div className="bg-blue-700 text-white text-[10px] font-bold px-4 py-1.5 flex justify-between items-center z-10">
-          <span>09:41</span>
-          <div className="flex space-x-1">
-            <span className="bg-white/20 px-1 rounded">5G</span>
-            <span className="bg-white/20 px-1 rounded">100%</span>
-          </div>
-        </div>
+    <div className="flex justify-center bg-slate-100 min-h-screen">
+      {/* Container Unificado e Responsivo do Inspetor */}
+      <div className="w-full max-w-3xl bg-slate-50 flex flex-col h-screen shadow-lg md:border-x border-slate-200 overflow-hidden relative">
 
         {/* App Header */}
-        <header className="bg-blue-700 text-white px-5 pt-4 pb-6 rounded-b-[2rem] shadow-md z-10 shrink-0">
-          <div className="flex justify-between items-start">
+        <header className="bg-blue-700 text-white px-5 sm:px-8 pt-5 pb-6 shadow-md z-10 shrink-0">
+          <div className="flex justify-between items-center">
             <div>
               <p className="text-blue-200 text-xs font-bold uppercase tracking-wider mb-0.5">Inspetor em Campo</p>
-              <h1 className="text-xl font-extrabold">João Silva</h1>
+              <h1 className="text-xl sm:text-2xl font-extrabold">João Silva</h1>
             </div>
-            <button onClick={onLogout} className="p-2 bg-blue-800 rounded-full hover:bg-blue-900 transition-colors" title="Sair">
+            <button onClick={onLogout} className="p-2 bg-blue-800 hover:bg-blue-900 text-white rounded-lg transition-colors flex items-center gap-1.5 text-xs font-bold" title="Sair do Sistema">
               <LogOut size={16} />
+              <span>Sair</span>
             </button>
           </div>
         </header>

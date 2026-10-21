@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Moon, Sun, Mail, Lock, LogIn, Eye, EyeOff, UserCheck } from 'react-feather';
+import { Moon, Sun, Mail, Lock, LogIn, Eye, EyeOff, Shield } from 'react-feather';
 import logoUrl from './assets/logo.jpg';
 
 interface LoginProps {
@@ -8,7 +8,7 @@ interface LoginProps {
   onSelectRole?: (role: 'gestor' | 'inspetor' | 'cliente') => void;
 }
 
-const Login = ({ onLogin, error, onSelectRole }: LoginProps) => {
+const Login = ({ onLogin, error }: LoginProps) => {
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -20,62 +20,59 @@ const Login = ({ onLogin, error, onSelectRole }: LoginProps) => {
   };
 
   return (
-    <div 
-      className="min-h-screen flex flex-col items-center justify-center relative bg-[#f4f7f9] p-4"
-      style={{
-        backgroundImage: `
-          linear-gradient(to right, #e2e8f0 1px, transparent 1px),
-          linear-gradient(to bottom, #e2e8f0 1px, transparent 1px)
-        `,
-        backgroundSize: '40px 40px'
-      }}
-    >
-      {/* Subtle radial gradient to match the background glow in the image */}
-      <div className="absolute inset-0 bg-gradient-to-br from-blue-50/80 via-transparent to-blue-100/60 pointer-events-none"></div>
+    <div className="min-h-screen flex items-center justify-center relative bg-gradient-to-br from-slate-100 via-blue-50/40 to-slate-200 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 p-4 transition-colors duration-300">
+      {/* Elementos suaves de iluminação de fundo (sem quadriculado) */}
+      <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-400/10 dark:bg-blue-600/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-indigo-400/10 dark:bg-indigo-600/10 rounded-full blur-3xl pointer-events-none" />
 
-      <div className="bg-white rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.08)] p-8 w-full max-w-[420px] relative z-10 border border-gray-100">
+      {/* Cartão de Login Unificado */}
+      <div className="w-full max-w-[440px] bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200/80 dark:border-slate-800 p-8 sm:p-9 relative z-10 backdrop-blur-sm transition-all">
         
-        {/* Dark Mode Toggle */}
+        {/* Alternador de Modo Escuro */}
         <button 
           type="button"
           onClick={toggleDarkMode}
-          className="absolute top-4 right-4 p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors border border-gray-100"
+          className="absolute top-5 right-5 p-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors border border-slate-200/60 dark:border-slate-700/60"
           title="Alternar Modo Escuro"
         >
-          {isDark ? <Sun size={16} /> : <Moon size={16} />}
+          {isDark ? <Sun size={17} /> : <Moon size={17} />}
         </button>
 
-        {/* Logo */}
-        <div className="flex justify-center mb-6 mt-2">
-          <img src={logoUrl} alt="D&A Inspeções Logo" className="h-24 object-contain" />
+        {/* Logomarca */}
+        <div className="flex flex-col items-center mb-6">
+          <img src={logoUrl} alt="D&A Inspeções" className="h-20 sm:h-24 object-contain rounded-lg" />
+          <h2 className="text-lg font-bold text-slate-800 dark:text-white mt-3 text-center">
+            Portal de Acesso
+          </h2>
+          <p className="text-xs text-slate-500 dark:text-slate-400 text-center mt-0.5">
+            Insira suas credenciais para acessar o sistema
+          </p>
         </div>
 
-
-
-        {/* Error message */}
+        {/* Mensagem de Erro */}
         {error && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-600 text-xs rounded-md text-center">
+          <div className="mb-4 p-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 text-xs rounded-lg text-center font-medium">
             {error}
           </div>
         )}
 
-        {/* Form */}
+        {/* Formulário Único */}
         <form onSubmit={(e) => { e.preventDefault(); onLogin(email, password); }} className="space-y-4">
           {/* E-mail */}
           <div>
-            <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase tracking-wide">
+            <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1.5 uppercase tracking-wider">
               E-mail
             </label>
             <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <Mail size={16} className="text-gray-400" />
+              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+                <Mail size={16} className="text-slate-400" />
               </div>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="block w-full pl-10 pr-3 py-2.5 border border-gray-200 rounded-md text-sm bg-[#f8fafc] text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                placeholder="Digite seu e-mail"
+                className="block w-full pl-10 pr-3.5 py-2.5 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-slate-50 dark:bg-slate-800/80 text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition-all"
+                placeholder="seu.email@exemplo.com"
                 required
               />
             </div>
@@ -83,94 +80,56 @@ const Login = ({ onLogin, error, onSelectRole }: LoginProps) => {
 
           {/* Senha */}
           <div>
-            <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase tracking-wide">
-              Senha
-            </label>
+            <div className="flex justify-between items-center mb-1.5">
+              <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">
+                Senha
+              </label>
+              <a 
+                href="#" 
+                onClick={(e) => { e.preventDefault(); alert('Por favor, entre em contato com o administrador do sistema para redefinir sua senha.'); }}
+                className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+              >
+                Esqueceu a senha?
+              </a>
+            </div>
             <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <Lock size={16} className="text-gray-400" />
+              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+                <Lock size={16} className="text-slate-400" />
               </div>
               <input
                 type={showPassword ? "text" : "password"}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="block w-full pl-10 pr-10 py-2.5 border border-gray-200 rounded-md text-sm bg-[#f8fafc] text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                className="block w-full pl-10 pr-11 py-2.5 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-slate-50 dark:bg-slate-800/80 text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition-all"
                 placeholder="Digite sua senha"
                 required
               />
               <button
                 type="button"
-                className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 focus:outline-none"
+                className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 focus:outline-none cursor-pointer"
                 onClick={() => setShowPassword(!showPassword)}
+                tabIndex={-1}
               >
                 {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
           </div>
 
-          {/* Submit Button */}
+          {/* Botão de Entrar */}
           <button
             type="submit"
-            className="w-full flex justify-center items-center py-2.5 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-[#0066cc] hover:bg-[#0052a3] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors mt-2"
+            className="w-full flex justify-center items-center py-2.5 px-4 rounded-lg text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 active:bg-blue-800 shadow-md shadow-blue-500/20 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all cursor-pointer mt-2"
           >
             <LogIn size={16} className="mr-2" />
-            Entrar
+            Entrar no Sistema
           </button>
         </form>
 
-        {/* Esqueci a senha */}
-        <div className="mt-4 text-center">
-          <a href="#" onClick={(e) => { e.preventDefault(); alert('Por favor, entre em contato com o suporte D&A Inspeções.'); }} className="text-xs text-blue-500 hover:text-blue-700 hover:underline">
-            Esqueci minha senha
-          </a>
+        {/* Rodapé de Segurança e Autenticidade */}
+        <div className="mt-7 pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-center text-[11px] text-slate-400 dark:text-slate-500 gap-1.5">
+          <Shield size={14} className="text-emerald-500" />
+          <span>Ambiente Seguro • D&A Inspeções</span>
         </div>
-
-        {/* Demonstração / Acesso Rápido */}
-        {onSelectRole && (
-          <div className="mt-6 pt-5 border-t border-gray-100">
-            <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider text-center mb-3 flex items-center justify-center">
-              <UserCheck size={13} className="mr-1 text-blue-600" /> Acesso Rápido de Teste
-            </p>
-            <div className="grid grid-cols-3 gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setEmail('matheus.stanley12@gmail.com');
-                  setPassword('35215415');
-                  onSelectRole('gestor');
-                }}
-                className="py-2 px-2 text-xs font-bold rounded-lg bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200 transition-colors text-center shadow-xs"
-              >
-                Gestor
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setEmail('testeinspetor@gmail.com');
-                  setPassword('123456');
-                  onSelectRole('inspetor');
-                }}
-                className="py-2 px-2 text-xs font-bold rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition-colors text-center shadow-xs"
-              >
-                Inspetor
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setEmail('testecliente@gmail.com');
-                  setPassword('123456');
-                  onSelectRole('cliente');
-                }}
-                className="py-2 px-2 text-xs font-bold rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition-colors text-center shadow-xs"
-              >
-                Cliente
-              </button>
-            </div>
-            <p className="text-[10px] text-gray-400 text-center mt-3">
-              Insira seu e-mail e senha acima ou clique em um dos perfis para testar.
-            </p>
-          </div>
-        )}
       </div>
     </div>
   );
