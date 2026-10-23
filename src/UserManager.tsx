@@ -8,6 +8,7 @@ import {
   resetUserPasswordToDefault,
   syncFromServer,
   DEFAULT_INITIAL_PASSWORD,
+  MASTER_DEV_EMAIL,
   USERS_CHANGE_EVENT,
   type SystemUser,
 } from './stores/formulariosStore';
@@ -54,6 +55,11 @@ export default function UserManager() {
     return () => window.removeEventListener(USERS_CHANGE_EVENT, syncUsers);
   }, []);
 
+  // O usuário desenvolvedor master fica oculto da listagem comum de usuários
+  const displayedUsers = users.filter(
+    u => u.email?.trim().toLowerCase() !== MASTER_DEV_EMAIL
+  );
+
   const handleOpenAdd = () => {
     setFormData({
       name: '',
@@ -81,6 +87,11 @@ export default function UserManager() {
   };
 
   const handleDelete = (id: string) => {
+    const target = users.find(u => String(u.id) === String(id));
+    if (target?.email?.trim().toLowerCase() === MASTER_DEV_EMAIL) {
+      toast.error('O usuário desenvolvedor é protegido e não pode ser removido.');
+      return;
+    }
     if (confirm('Tem certeza que deseja remover este usuário do sistema?')) {
       const updated = users.filter(u => String(u.id) !== String(id));
       saveSystemUsers(updated, true, [String(id)]);
@@ -103,6 +114,11 @@ export default function UserManager() {
 
     try {
       const cleanEmail = formData.email.trim().toLowerCase();
+      if (cleanEmail === MASTER_DEV_EMAIL) {
+        toast.error('Este e-mail é de uso exclusivo do Desenvolvedor do Sistema.');
+        setIsSaving(false);
+        return;
+      }
       const nowTs = Date.now();
 
       if (editingUserId) {
@@ -240,7 +256,7 @@ export default function UserManager() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {users.map((user) => (
+              {displayedUsers.map((user) => (
                 <tr key={user.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center">
@@ -315,7 +331,7 @@ export default function UserManager() {
             </tbody>
           </table>
           
-          {users.length === 0 && (
+          {displayedUsers.length === 0 && (
             <div className="p-12 text-center text-gray-500">
               <User size={48} className="mx-auto mb-4 text-gray-300" />
               <p className="font-medium text-gray-900">Nenhum usuário cadastrado.</p>

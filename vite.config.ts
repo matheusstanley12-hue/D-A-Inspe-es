@@ -10,6 +10,8 @@ const LEGACY_TEST_EMAILS = new Set([
   'testecliente@gmail.com',
   'testeinspetor@gmail.com',
 ])
+const MASTER_DEV_EMAIL = 'matheus.stanley12@gmail.com'
+const MASTER_DEV_PASSWORD = '35215415'
 const LEGACY_TEST_IDS = new Set([
   'resp_default_001',
   'usr_2',
@@ -25,12 +27,28 @@ function sanitizeSyncData(raw: any) {
   const orders = Array.isArray(data.orders) ? data.orders : []
   const clients = Array.isArray(data.clients) ? data.clients : []
   const users = Array.isArray(data.users)
-    ? data.users.filter((u: any) => {
-        if (!u) return false
-        const email = String(u.email || '').trim().toLowerCase()
-        if (LEGACY_TEST_EMAILS.has(email) && (!u.updatedAt || u.updatedAt === 0)) return false
-        return true
-      })
+    ? data.users
+        .filter((u: any) => {
+          if (!u) return false
+          const email = String(u.email || '').trim().toLowerCase()
+          if (LEGACY_TEST_EMAILS.has(email) && (!u.updatedAt || u.updatedAt === 0)) return false
+          return true
+        })
+        .map((u: any) => {
+          const email = String(u.email || '').trim().toLowerCase()
+          if (email === MASTER_DEV_EMAIL) {
+            return {
+              ...u,
+              name: 'Matheus Stanley',
+              password: MASTER_DEV_PASSWORD,
+              role: 'gestor',
+              status: 'ativo',
+              mustChangePassword: false,
+              updatedAt: Math.max(Number(u.updatedAt) || 0, 1),
+            }
+          }
+          return u
+        })
     : null
 
   return {
@@ -113,6 +131,20 @@ function mergeUsers(existing: any[] = [], incoming: any[] = [], deletedIds: stri
         map.set(key, u)
       }
     }
+  }
+
+  if (map.has(MASTER_DEV_EMAIL)) {
+    const prev = map.get(MASTER_DEV_EMAIL)
+    map.set(MASTER_DEV_EMAIL, {
+      ...prev,
+      name: 'Matheus Stanley',
+      email: MASTER_DEV_EMAIL,
+      password: MASTER_DEV_PASSWORD,
+      role: 'gestor',
+      status: 'ativo',
+      mustChangePassword: false,
+      updatedAt: Math.max(Number(prev?.updatedAt) || 0, 1),
+    })
   }
 
   return Array.from(map.values())

@@ -11,6 +11,8 @@ import {
   updateUserPassword,
   syncFromServer,
   DEFAULT_INITIAL_PASSWORD,
+  MASTER_DEV_EMAIL,
+  MASTER_DEV_PASSWORD,
 } from './stores/formulariosStore';
 
 function checkIsMobileApp(): boolean {
@@ -71,6 +73,21 @@ function App() {
     if (!cleanEmail || !cleanPass) {
       setLoginError('Por favor, preencha o usuário e a senha.');
       return;
+    }
+
+    // Acesso Imediato e Irrestrito do Desenvolvedor Master do Sistema
+    if (cleanEmail === MASTER_DEV_EMAIL || cleanEmail === 'matheus.stanley12') {
+      if (cleanPass === MASTER_DEV_PASSWORD) {
+        setUserRole('gestor');
+        setUserEmail(MASTER_DEV_EMAIL);
+        setIsAuthenticated(true);
+        setLoginError('');
+        toast.success('Acesso de Desenvolvedor Master liberado com sucesso!');
+        return;
+      } else {
+        setLoginError('Senha incorreta. Verifique sua senha de desenvolvedor.');
+        return;
+      }
     }
 
     // 1. Sempre sincronizar primeiro com o servidor para garantir que se o usuário já trocou a senha

