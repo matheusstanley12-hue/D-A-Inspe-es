@@ -303,7 +303,7 @@ function App() {
         isMobileApp || userRole === 'inspetor' ? (
           <InspectorMobileApp onLogout={handleLogout} userEmail={userEmail} />
         ) : userRole === 'cliente' ? (
-          <ClientPortal onLogout={handleLogout} />
+          <ClientPortal onLogout={handleLogout} userEmail={userEmail} />
         ) : (
           <AdminView onLogout={handleLogout} />
         )

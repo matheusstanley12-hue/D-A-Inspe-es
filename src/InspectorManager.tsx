@@ -4,7 +4,12 @@ import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { ChevronRight, ChevronDown, ChevronLeft, Map, CheckCircle, Clock, Maximize2, X, DollarSign } from 'react-feather';
 import toast from 'react-hot-toast';
-import { getExpenses, EXPENSES_CHANGE_EVENT, type InspectorExpense } from './stores/formulariosStore';
+import { 
+  getExpenses, EXPENSES_CHANGE_EVENT, type InspectorExpense,
+  getSystemUsers, USERS_CHANGE_EVENT,
+  getClients, CLIENTS_CHANGE_EVENT, type SystemClient,
+  getServiceOrders, upsertServiceOrder, ORDERS_CHANGE_EVENT
+} from './stores/formulariosStore';
 
 // Fix for default marker icon in react-leaflet
 import icon from 'leaflet/dist/images/marker-icon.png';
@@ -60,109 +65,77 @@ let DefaultIcon = L.icon({
 });
 L.Marker.prototype.options.icon = DefaultIcon;
 
-// Initial Data
-const INITIAL_DATA: Inspector[] = [
-  {
-    id: 1,
-    name: 'João Silva',
-    status: 'disponivel',
-    location: 'Sede (Belo Horizonte)',
-    currentTask: null,
-    trips: [
-      {
-        id: 't1',
-        date: '29/08/2026',
-        status: 'completed',
-        waypoints: [
-          'Praça da Liberdade, BH',
-          'Av. Afonso Pena, 1000',
-          'Mercado Central, BH'
-        ],
-        coords: [
-          [-19.9320, -43.9380] as [number, number],
-          [-19.9227, -43.9351] as [number, number],
-          [-19.9219, -43.9436] as [number, number]
-        ],
-        distanceKm: 5.4,
-        stops: 1,
-        meals: [
-          { type: 'Almoço', value: 45.00 },
-          { type: 'Lanche', value: 15.00 }
-        ],
-        receipts: {
-          fuel: 'https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?w=150&q=80',
-          food: ['https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?w=150&q=80']
-        }
+function buildInspectorsList(): Inspector[] {
+  const users = getSystemUsers().filter(u => u.role === 'inspetor' || u.role === 'gestor');
+  const expenses = getExpenses();
+  const orders = getServiceOrders();
+
+  return users.map((u, idx) => {
+    const userExpenses = expenses.filter(
+      e => e.inspectorName.toLowerCase().includes(u.name.toLowerCase()) ||
+           u.name.toLowerCase().includes(e.inspectorName.toLowerCase())
+    );
+    const userOrders = orders.filter(
+      o => o.inspector.toLowerCase().includes(u.name.toLowerCase()) ||
+           u.name.toLowerCase().includes(o.inspector.toLowerCase())
+    );
+    const activeOrder = userOrders.find(o => o.status === 'Em Andamento' || o.status === 'Agendada');
+
+    const trips: Trip[] = userOrders.map((o, oIdx) => ({
+      id: o.id || `trip_${oIdx}`,
+      date: o.date,
+      status: o.status === 'Concluída' ? 'completed' : 'in_progress',
+      waypoints: ['Sede D&A Inspeções', o.client + (o.location ? ` (${o.location})` : '')],
+      coords: [
+        [-19.9320, -43.9380] as [number, number],
+        [-19.9208 + (oIdx * 0.02), -43.9378 + (oIdx * 0.02)] as [number, number]
+      ],
+      distanceKm: 12.5,
+      stops: 1,
+      meals: userExpenses.filter(e => e.category === 'alimentacao').map(e => ({ type: e.description, value: e.valor })),
+      receipts: {
+        fuel: userExpenses.find(e => e.category === 'combustivel')?.receiptUrl || null,
+        food: userExpenses.filter(e => e.category === 'alimentacao' && e.receiptUrl).map(e => e.receiptUrl as string)
       }
-    ]
-  },
-  {
-    id: 2,
-    name: 'Ana Costa',
-    status: 'em_atendimento',
-    location: 'CORACORTHE',
-    currentTask: 'Inspeção NR-12',
-    trips: [
-      {
-        id: 't2',
-        date: '03/09/2026',
-        status: 'in_progress',
-        waypoints: [
-          'Sede (Belo Horizonte)',
-          'CORACORTHE (Contagem)'
-        ],
-        coords: [
-          [-19.9320, -43.9380] as [number, number],
-          [-19.9540, -44.0200] as [number, number]
-        ],
-        distanceKm: 15.2,
-        stops: 0,
-        meals: [],
-        receipts: null
-      }
-    ]
-  },
-  {
-    id: 3,
-    name: 'Matheus Stanley',
-    status: 'em_atendimento',
-    location: 'Fábrica ABC',
-    currentTask: 'Visita técnica',
-    trips: [
-      {
-        id: 't3',
-        date: '03/09/2026',
-        status: 'in_progress',
-        waypoints: [
-          'Sede (Belo Horizonte)',
-          'Fábrica ABC (Betim)'
-        ],
-        coords: [
-          [-19.9320, -43.9380] as [number, number],
-          [-19.9670, -44.1980] as [number, number]
-        ],
-        distanceKm: 28.5,
-        stops: 0,
-        meals: [],
-        receipts: null
-      }
-    ]
-  }
-];
+    }));
+
+    return {
+      id: idx + 1,
+      name: u.name,
+      status: activeOrder ? 'em_atendimento' : 'disponivel',
+      location: activeOrder ? activeOrder.client : 'Sede (Belo Horizonte)',
+      currentTask: activeOrder ? `${activeOrder.type} - ${activeOrder.client}` : null,
+      trips
+    };
+  });
+}
 
 export default function InspectorManager() {
   const [fuelPrice, setFuelPrice] = useState(5.50);
   const [consumption, setConsumption] = useState(10.0);
   const [foodAllowance, setFoodAllowance] = useState(40.00); // Limite diário de alimentação
   
-  const [inspectors, setInspectors] = useState(INITIAL_DATA);
+  const [inspectors, setInspectors] = useState<Inspector[]>(() => buildInspectorsList());
   const [expenses, setExpenses] = useState<InspectorExpense[]>(() => getExpenses());
+  const [clientsList, setClientsList] = useState<SystemClient[]>(() => getClients());
   const [selectedReceiptPreview, setSelectedReceiptPreview] = useState<string | null>(null);
 
   useEffect(() => {
-    const syncExp = () => setExpenses(getExpenses());
-    window.addEventListener(EXPENSES_CHANGE_EVENT, syncExp);
-    return () => window.removeEventListener(EXPENSES_CHANGE_EVENT, syncExp);
+    const syncAll = () => {
+      setExpenses(getExpenses());
+      setClientsList(getClients());
+      setInspectors(buildInspectorsList());
+    };
+    window.addEventListener(EXPENSES_CHANGE_EVENT, syncAll);
+    window.addEventListener(USERS_CHANGE_EVENT, syncAll);
+    window.addEventListener(CLIENTS_CHANGE_EVENT, syncAll);
+    window.addEventListener(ORDERS_CHANGE_EVENT, syncAll);
+    return () => {
+      window.removeEventListener(EXPENSES_CHANGE_EVENT, syncAll);
+      window.removeEventListener(USERS_CHANGE_EVENT, syncAll);
+      window.removeEventListener(CLIENTS_CHANGE_EVENT, syncAll);
+      window.removeEventListener(ORDERS_CHANGE_EVENT, syncAll);
+    };
   }, []);
   
   // Controle de expansão
@@ -176,13 +149,17 @@ export default function InspectorManager() {
   const [editingRoute, setEditingRoute] = useState<{inspId: number, tripId: string} | null>(null);
   
   // Form da Demanda (Nova)
-  const [demandForm, setDemandForm] = useState({
-    inspector: 'João Silva',
-    client: 'CORACORTHE',
-    date: '',
-    time: '08:00',
-    type: 'Visita técnica',
-    address: ''
+  const [demandForm, setDemandForm] = useState(() => {
+    const firstClient = getClients()[0]?.companyName || '';
+    const firstInsp = getSystemUsers().find(u => u.role === 'inspetor')?.name || 'Matheus Stanley';
+    return {
+      inspector: firstInsp,
+      client: firstClient,
+      date: new Date().toISOString().split('T')[0],
+      time: '08:00',
+      type: 'Diligenciamento',
+      address: getClients()[0]?.address || ''
+    };
   });
 
   // Form da Rota (Agora com múltiplos destinos)
@@ -215,7 +192,7 @@ export default function InspectorManager() {
       setExpandedInspectorId(id);
       
       // Auto expand the first trip if the inspector is "em_atendimento"
-      const insp = INITIAL_DATA.find(i => i.id === id);
+      const insp = inspectors.find(i => i.id === id);
       if (insp && insp.status === 'em_atendimento' && insp.trips.length > 0) {
         setExpandedTripIndex(`${id}-${insp.trips[0].id}`);
       } else {
@@ -857,26 +834,22 @@ export default function InspectorManager() {
                   className="w-full border border-gray-300 rounded p-2 focus:ring-1 focus:ring-blue-500 bg-white"
                   value={demandForm.client}
                   onChange={(e) => {
-                    const MOCK_CLIENTS_LIST = [
-                      { name: '', address: '' },
-                      { name: 'CORACORTHE', address: 'Rua das Indústrias, 500, Campinas - SP' },
-                      { name: 'Galpão Weir', address: 'Avenida José Alves de Oliveira, 128, Novo Horizonte, Jundiaí - SP' },
-                      { name: 'Fábrica ABC', address: 'Rodovia BR-101, Km 42, São Paulo - SP' },
-                      { name: 'Mercado Central', address: 'Rua do Mercado, 120, Centro - BH' }
-                    ];
-                    const selectedClient = MOCK_CLIENTS_LIST.find(c => c.name === e.target.value);
+                    const selectedClient = clientsList.find(c => c.companyName === e.target.value);
                     setDemandForm({
                       ...demandForm, 
                       client: e.target.value,
-                      address: selectedClient ? selectedClient.address : ''
+                      address: selectedClient ? (selectedClient.address || '') : ''
                     });
                   }}
                 >
                   <option value="" disabled>Selecione um cliente...</option>
-                  <option value="CORACORTHE">CORACORTHE</option>
-                  <option value="Galpão Weir">Galpão Weir</option>
-                  <option value="Fábrica ABC">Fábrica ABC</option>
-                  <option value="Mercado Central">Mercado Central</option>
+                  {clientsList.length > 0 ? (
+                    clientsList.map(c => (
+                      <option key={c.id} value={c.companyName}>{c.companyName}</option>
+                    ))
+                  ) : (
+                    <option value="" disabled>Nenhum cliente cadastrado em Clientes</option>
+                  )}
                 </select>
               </div>
               
@@ -884,10 +857,10 @@ export default function InspectorManager() {
                 <label className="block text-sm font-semibold text-gray-700 mb-1">Endereço da Demanda</label>
                 <input 
                   type="text"
-                  className="w-full border border-gray-300 rounded p-2 bg-gray-50 text-gray-500 cursor-not-allowed"
-                  placeholder="Endereço preenchido automaticamente"
+                  className="w-full border border-gray-300 rounded p-2 bg-gray-50 text-gray-700"
+                  placeholder="Endereço da empresa"
                   value={demandForm.address}
-                  readOnly
+                  onChange={(e) => setDemandForm({ ...demandForm, address: e.target.value })}
                 />
               </div>
 
@@ -919,8 +892,11 @@ export default function InspectorManager() {
                   value={demandForm.type}
                   onChange={(e) => setDemandForm({...demandForm, type: e.target.value})}
                 >
+                  <option>Diligenciamento</option>
+                  <option>Solda</option>
+                  <option>Fabricação</option>
+                  <option>Inspeção NR-12</option>
                   <option>Visita técnica</option>
-                  <option>Inspeção</option>
                 </select>
               </div>
             </div>
@@ -939,6 +915,22 @@ export default function InspectorManager() {
                     return;
                   }
 
+                  const code = `OS-${new Date().getFullYear()}-${String(Math.floor(1000 + Math.random() * 9000))}`;
+                  upsertServiceOrder({
+                    id: 'os_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+                    code,
+                    client: demandForm.client,
+                    location: demandForm.address || 'Em campo',
+                    inspector: demandForm.inspector,
+                    type: demandForm.type,
+                    status: 'Agendada',
+                    date: demandForm.date,
+                    StartTime: demandForm.time,
+                    progress: 0,
+                    notes: `Demanda de ${demandForm.type} agendada para ${demandForm.client}.`,
+                    createdAt: new Date().toISOString(),
+                  });
+
                   setInspectors(prev => prev.map(insp => {
                     if (insp.name === demandForm.inspector || demandForm.inspector === 'Todos') {
                       return {
@@ -951,7 +943,7 @@ export default function InspectorManager() {
                     return insp;
                   }));
 
-                  toast.success(`Demanda programada para ${demandForm.inspector}! Sincronizado no App e Calendário.`);
+                  toast.success(`Demanda ${code} programada para ${demandForm.inspector}! Sincronizado no App e Calendário.`);
                   setShowDemandModal(false);
                 }}
                 className="bg-[#0066cc] text-white px-6 py-2 rounded font-bold hover:bg-[#0052a3]"

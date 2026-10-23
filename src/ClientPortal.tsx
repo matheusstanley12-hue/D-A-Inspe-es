@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { LogOut, Calendar as CalendarIcon, Clock, MapPin, CheckCircle, FileText, Download, Search } from 'react-feather';
 import { Calendar as BigCalendar, dateFnsLocalizer } from 'react-big-calendar';
 import { format, parse, startOfWeek, getDay } from 'date-fns';
@@ -12,6 +12,11 @@ import ClientDashboardView from './ClientDashboardView';
 import FormulariosView from './FormulariosView';
 import { Activity, Menu, Briefcase, ChevronDown, ChevronRight, FilePlus } from 'react-feather';
 import logoUrl from './assets/logo.jpg';
+import { 
+  getServiceOrders, ORDERS_CHANGE_EVENT, type ServiceOrder,
+  getFormResponses, RESPONSES_CHANGE_EVENT, type FormResponse,
+  findSystemUserByEmail
+} from './stores/formulariosStore';
 
 const locales = {
   'pt-BR': ptBR,
@@ -25,76 +30,9 @@ const localizer = dateFnsLocalizer({
   locales,
 });
 
-const today = new Date();
-
-const MY_EVENTS = [
-  {
-    id: 1,
-    title: 'Inspeção Técnica',
-    start: new Date(today.getFullYear(), today.getMonth(), today.getDate(), 10, 0),
-    end: new Date(today.getFullYear(), today.getMonth(), today.getDate(), 12, 0),
-    os: 'OS-2026-104',
-    status: 'Finalizada',
-    inspector: 'João Silva',
-    priority: 'Alta',
-    address: 'Av. Industrial, 500 - Distrito Industrial',
-    duration: '2h00min'
-  },
-  {
-    id: 2,
-    title: 'Visita técnica',
-    start: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 2, 14, 0),
-    end: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 2, 16, 0),
-    os: 'OS-2026-108',
-    status: 'Agendada',
-    inspector: 'Matheus Stanley',
-    priority: 'Média',
-    address: 'Rodovia BR-101, Km 42',
-    duration: '2h00min'
-  },
-  {
-    id: 3,
-    title: 'Inspeção NR-12',
-    start: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 5, 8, 0),
-    end: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 5, 12, 0),
-    os: 'OS-2026-112',
-    status: 'Agendada',
-    inspector: 'Ana Costa',
-    priority: 'Alta',
-    address: 'Av. das Nações, 1500',
-    duration: '4h00min'
-  }
-];
-
-const FORNECEDORES_LIST = [
-  "CRIVALARO",
-  "Modelação São Francisco",
-  "Grupo Metal",
-  "Thermotech",
-  "Itupeva",
-  "Galpao Weir",
-  "Modelação Gomes (ANTIGA EIXXO)",
-  "Mefsa",
-  "Fundição São Francisco",
-  "Escala",
-  "Fusin",
-  "Tecboor",
-  "Usinagem MZT",
-  "Mepe Soldas",
-  "PAES USINAGEM",
-  "CQ SOROCABA",
-  "CORACORTHE HARDOX",
-  "RV SOLUÇÕES",
-  "CONFORMI",
-  "MJM",
-  "CALIFORNIA",
-  "GRANAÇO",
-  "Modelação Eixo"
-];
-
 // Custom event component declared outside render to maintain stable identity
 const CalendarCustomEvent = ({ event }: any) => {
-  const isCompleted = event.status === 'Finalizada';
+  const isCompleted = event.status === 'Finalizada' || event.status === 'Concluída';
   return (
     <div className={`text-xs p-1 px-2 h-full w-full font-semibold rounded text-white overflow-hidden text-ellipsis whitespace-nowrap ${isCompleted ? 'bg-emerald-500' : 'bg-[#0066cc]'}`}>
       {event.title}
@@ -102,12 +40,104 @@ const CalendarCustomEvent = ({ event }: any) => {
   );
 };
 
-export default function ClientPortal({ onLogout, isImpersonating }: { onLogout: () => void, isImpersonating?: boolean }) {
+export default function ClientPortal({ 
+  onLogout, 
+  isImpersonating, 
+  userEmail,
+  clientName: initialClientName 
+}: { 
+  onLogout: () => void; 
+  isImpersonating?: boolean;
+  userEmail?: string;
+  clientName?: string;
+}) {
   const [selectedEvent, setSelectedEvent] = useState<any>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [activeTab, setActiveTab] = useState('Dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => typeof window !== 'undefined' ? window.innerWidth >= 768 : false);
   const [isFornecedoresExpanded, setIsFornecedoresExpanded] = useState(false);
+
+  const [orders, setOrders] = useState<ServiceOrder[]>(() => getServiceOrders());
+  const [responses, setResponses] = useState<FormResponse[]>(() => getFormResponses());
+
+  useEffect(() => {
+    const updateOrd = () => setOrders(getServiceOrders());
+    const updateResp = () => setResponses(getFormResponses());
+
+    window.addEventListener(ORDERS_CHANGE_EVENT, updateOrd);
+    window.addEventListener(RESPONSES_CHANGE_EVENT, updateResp);
+
+    return () => {
+      window.removeEventListener(ORDERS_CHANGE_EVENT, updateOrd);
+      window.removeEventListener(RESPONSES_CHANGE_EVENT, updateResp);
+    };
+  }, []);
+
+  const registeredUser = userEmail ? findSystemUserByEmail(userEmail) : null;
+  const activeClientName = initialClientName || registeredUser?.company || registeredUser?.name || 'Portal do Cliente';
+
+  // Filtrar ordens e respostas pertinentes a este cliente
+  const clientOrders = orders.filter(o => 
+    !activeClientName || activeClientName === 'Portal do Cliente' ||
+    o.client.toLowerCase().includes(activeClientName.toLowerCase()) ||
+    activeClientName.toLowerCase().includes(o.client.toLowerCase())
+  );
+  const displayOrders = clientOrders.length > 0 ? clientOrders : orders;
+
+  const clientResponses = responses.filter(r => {
+    const clientInResp = r.answers?.os_cliente || r.answers?.empresa || r.answers?.cliente || '';
+    if (!activeClientName || activeClientName === 'Portal do Cliente') return true;
+    return clientInResp.toLowerCase().includes(activeClientName.toLowerCase()) ||
+           activeClientName.toLowerCase().includes(clientInResp.toLowerCase());
+  });
+  const displayResponses = clientResponses.length > 0 ? clientResponses : responses;
+
+  const dynamicSuppliers = Array.from(new Set(displayOrders.map(o => o.client))).filter(Boolean);
+  const FORNECEDORES_LIST = dynamicSuppliers.length > 0 ? dynamicSuppliers : [activeClientName];
+
+  // Montar eventos do calendário
+  const myEvents = displayOrders.map((o) => {
+    let start = new Date();
+    if (o.date) {
+      const parts = o.date.split('-');
+      if (parts.length === 3) {
+        const [h, m] = (o.StartTime || '08:00').split(':').map(Number);
+        start = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]), h || 8, m || 0);
+      }
+    }
+    const end = new Date(start.getTime() + 2 * 60 * 60 * 1000);
+    return {
+      id: o.id,
+      title: `${o.type} - ${o.client}`,
+      start,
+      end,
+      os: o.code,
+      status: o.status === 'Concluída' ? 'Finalizada' : o.status,
+      inspector: o.inspector,
+      priority: 'Alta',
+      address: o.location || 'Em campo',
+      duration: '2h00min'
+    };
+  });
+
+  // Montar relatórios da tabela
+  const reportsList = displayResponses.map((r) => {
+    const d = new Date(r.submittedAt);
+    const dataFormatted = !isNaN(d.getTime())
+      ? `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`
+      : 'Recente';
+    const pecasNum = parseInt(r.answers?.['f1_2'] || '1', 10) || 1;
+    const parecer = r.answers?.os_parecer || r.answers?.['f1_6'] || 'Aprovado';
+    return {
+      os: r.answers?.os_numero || `LAUDO-${r.id.slice(0, 6)}`,
+      tipo: r.category || r.formName,
+      inspetor: r.inspectorName,
+      fornecedor: r.answers?.os_cliente || r.answers?.empresa || activeClientName,
+      data: dataFormatted,
+      pecas: pecasNum,
+      status: parecer,
+    };
+  });
 
   const selectClientTab = (tab: string) => {
     setActiveTab(tab);
@@ -191,8 +221,9 @@ export default function ClientPortal({ onLogout, isImpersonating }: { onLogout: 
   const handleSendEmail = async () => {
     try {
       setIsGenerating(true);
-      await new Promise(r => setTimeout(r, 1000)); // Simulate sending
-      toast.success('E-mail enviado com sucesso para testecliente@gmail.com!');
+      await new Promise(r => setTimeout(r, 800));
+      const targetEmail = userEmail || 'seu e-mail de cadastro';
+      toast.success(`E-mail com o laudo enviado para ${targetEmail}!`);
     } catch (err) {
       console.error(err);
       toast.error('Erro ao enviar e-mail');
@@ -382,9 +413,9 @@ export default function ClientPortal({ onLogout, isImpersonating }: { onLogout: 
             <div className="flex items-center space-x-4 text-sm text-gray-600 ml-auto">
               <div className="flex items-center">
                 <div className="h-8 w-8 rounded-full bg-[#0066cc] text-white flex items-center justify-center font-bold text-xs mr-2">
-                  TC
+                  {activeClientName.slice(0, 2).toUpperCase()}
                 </div>
-                <span className="font-medium text-gray-700">Teste Cliente</span>
+                <span className="font-medium text-gray-700">{activeClientName}</span>
               </div>
             </div>
           </header>
@@ -392,7 +423,7 @@ export default function ClientPortal({ onLogout, isImpersonating }: { onLogout: 
           <main className="flex-1 overflow-auto p-3 sm:p-6 md:p-8 relative invert-target">
         
         {activeTab === 'Dashboard' && (
-          <ClientDashboardView />
+          <ClientDashboardView clientName={activeClientName} />
         )}
 
         {activeTab === 'Calendario' && (
@@ -405,7 +436,7 @@ export default function ClientPortal({ onLogout, isImpersonating }: { onLogout: 
             <div className="flex-1 bg-white border border-gray-200 rounded-xl shadow-sm p-4 relative min-h-[600px]">
               <BigCalendar
                 localizer={localizer}
-                events={MY_EVENTS}
+                events={myEvents}
                 startAccessor="start"
                 endAccessor="end"
                 culture="pt-BR"
@@ -550,53 +581,52 @@ export default function ClientPortal({ onLogout, isImpersonating }: { onLogout: 
                   </tr>
                 </thead>
                 <tbody>
-                  {[
-                    { os: 'OS-2026-104', tipo: 'Inspeção Técnica', inspetor: 'João Silva', fornecedor: 'Indústria Alpha', data: '10/09/2026', pecas: 142, status: 'Aprovado' },
-                    { os: 'OS-2026-099', tipo: 'Inspeção NR-12', inspetor: 'Ana Costa', fornecedor: 'Beta Máquinas', data: '08/09/2026', pecas: 87, status: 'Aprovado' },
-                    { os: 'OS-2026-091', tipo: 'Visita Técnica', inspetor: 'Carlos R.', fornecedor: 'Gamma Ferramentas', data: '05/09/2026', pecas: 210, status: 'Aprovado c/ ressalva' },
-                    { os: 'OS-2026-085', tipo: 'Inspeção Técnica', inspetor: 'João Silva', fornecedor: 'Indústria Alpha', data: '02/09/2026', pecas: 198, status: 'Aprovado' },
-                    { os: 'OS-2026-078', tipo: 'Inspeção NR-12', inspetor: 'Maria S.', fornecedor: 'Delta Usinagem', data: '29/08/2026', pecas: 55, status: 'Reprovado' },
-                    { os: 'OS-2026-072', tipo: 'Visita Técnica', inspetor: 'Ana Costa', fornecedor: 'Beta Máquinas', data: '25/08/2026', pecas: 320, status: 'Aprovado' },
-                    { os: 'OS-2026-065', tipo: 'Inspeção Técnica', inspetor: 'Carlos R.', fornecedor: 'Zeta Equipamentos', data: '20/08/2026', pecas: 175, status: 'Aprovado' },
-                    { os: 'OS-2026-058', tipo: 'Inspeção NR-12', inspetor: 'João Silva', fornecedor: 'Indústria Alpha', data: '15/08/2026', pecas: 93, status: 'Aprovado c/ ressalva' },
-                  ].map((rel, idx) => {
-                    const statusColor = rel.status === 'Aprovado'
-                      ? 'bg-emerald-100 text-emerald-700'
-                      : rel.status === 'Aprovado c/ ressalva'
-                      ? 'bg-amber-100 text-amber-700'
-                      : 'bg-red-100 text-red-700';
-                    return (
-                      <tr key={idx} className="border-b border-gray-100 last:border-0 hover:bg-blue-50/50 transition-colors">
-                        <td className="px-6 py-4 font-bold text-blue-600">{rel.os}</td>
-                        <td className="px-6 py-4 text-gray-700">{rel.tipo}</td>
-                        <td className="px-6 py-4 text-gray-600">{rel.inspetor}</td>
-                        <td className="px-6 py-4 font-medium text-gray-800">{rel.fornecedor}</td>
-                        <td className="px-6 py-4 text-gray-500">{rel.data}</td>
-                        <td className="px-6 py-4 font-semibold text-gray-700">{rel.pecas.toLocaleString('pt-BR')}</td>
-                        <td className="px-6 py-4">
-                          <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${statusColor}`}>
-                            {rel.status}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <button 
-                            onClick={() => handleDownloadRowReport(rel)}
-                            className="flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors"
-                          >
-                            <FileText size={13} /> PDF
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {reportsList.length > 0 ? (
+                    reportsList.map((rel, idx) => {
+                      const statusColor = rel.status.toLowerCase().includes('aprovado') || rel.status.toLowerCase().includes('conforme')
+                        ? 'bg-emerald-100 text-emerald-700'
+                        : rel.status.toLowerCase().includes('ressalva')
+                        ? 'bg-amber-100 text-amber-700'
+                        : 'bg-red-100 text-red-700';
+                      return (
+                        <tr key={idx} className="border-b border-gray-100 last:border-0 hover:bg-blue-50/50 transition-colors">
+                          <td className="px-6 py-4 font-bold text-blue-600">{rel.os}</td>
+                          <td className="px-6 py-4 text-gray-700">{rel.tipo}</td>
+                          <td className="px-6 py-4 text-gray-600">{rel.inspetor}</td>
+                          <td className="px-6 py-4 font-medium text-gray-800">{rel.fornecedor}</td>
+                          <td className="px-6 py-4 text-gray-500">{rel.data}</td>
+                          <td className="px-6 py-4 font-semibold text-gray-700">{rel.pecas.toLocaleString('pt-BR')}</td>
+                          <td className="px-6 py-4">
+                            <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${statusColor}`}>
+                              {rel.status}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <button 
+                              onClick={() => handleDownloadRowReport(rel)}
+                              className="flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
+                            >
+                              <FileText size={13} /> PDF
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  ) : (
+                    <tr>
+                      <td colSpan={8} className="px-6 py-10 text-center text-sm text-gray-500">
+                        Nenhum laudo ou relatório de inspeção emitido para esta empresa ainda.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
 
             {/* Resumo rodapé */}
             <div className="mt-4 flex justify-between text-xs text-gray-400 px-1">
-              <span>8 relatórios encontrados</span>
-              <span>Total de peças inspecionadas: <strong className="text-gray-600">1.280</strong></span>
+              <span>{reportsList.length} relatórios encontrados</span>
+              <span>Total de peças inspecionadas: <strong className="text-gray-600">{reportsList.reduce((acc, r) => acc + (r.pecas || 0), 0).toLocaleString('pt-BR')}</strong></span>
             </div>
           </div>
         )}

@@ -1,5 +1,5 @@
 // ============================================================
-// Formulários Store — fonte única de verdade para formulários
+// Formulários & Operação Store — fonte única de verdade em Produção
 // ============================================================
 export type FieldType =
   | 'text'
@@ -39,9 +39,27 @@ export interface InspectionForm {
 }
 
 export const FORMS_CHANGE_EVENT = 'da_forms_changed';
-const STORAGE_KEY = 'da_inspecoes_forms_v2';
+const STORAGE_KEY = 'da_inspecoes_forms_prod_v1';
 
-// -------- Formulários padrão --------
+// Limpeza automática de dados antigos de teste/homologação ao iniciar produção
+const PROD_CLEANUP_KEY = 'da_inspecoes_prod_cleanup_done_v1';
+if (typeof window !== 'undefined') {
+  try {
+    if (!localStorage.getItem(PROD_CLEANUP_KEY)) {
+      const legacyKeys = [
+        'da_inspecoes_form_responses_v1',
+        'da_inspecoes_expenses_v1',
+        'da_inspecoes_users_v1',
+        'da_inspecoes_users_v2',
+        'da_user_pwd_changed_v1',
+      ];
+      legacyKeys.forEach(k => localStorage.removeItem(k));
+      localStorage.setItem(PROD_CLEANUP_KEY, 'true');
+    }
+  } catch { /* ignore */ }
+}
+
+// -------- Modelos de Formulários Padrão da Operação --------
 function getDefaultForms(): InspectionForm[] {
   return [
     {
@@ -123,10 +141,10 @@ function getDefaultForms(): InspectionForm[] {
       description: 'Coleta de evidências fotográficas com timestamp.',
       category: 'Evidências & Registro',
       createdAt: new Date().toISOString(),
-      status: 'draft',
+      status: 'published',
       color: 'amber',
       fields: [
-        { id: 'f3_1', type: 'text', label: 'Local da Inspeção', required: true, options: [], placeholder: 'Ex: Fábrica ABC - Setor 3' },
+        { id: 'f3_1', type: 'text', label: 'Local da Inspeção', required: true, options: [], placeholder: 'Ex: Unidade Industrial - Setor 1' },
         { id: 'f3_2', type: 'photo', label: 'Foto Geral do Equipamento', required: true, options: [], placeholder: '' },
         { id: 'f3_3', type: 'photo', label: 'Foto de Plaqueta de Identificação', required: true, options: [], placeholder: '' },
         { id: 'f3_4', type: 'video', label: 'Vídeo de Funcionamento (opcional)', required: false, options: [], placeholder: '' },
@@ -144,23 +162,30 @@ function getDefaultForms(): InspectionForm[] {
   ];
 }
 
-// -------- API pública --------
+// -------- API pública de Formulários --------
 export function getForms(): InspectionForm[] {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) return JSON.parse(stored) as InspectionForm[];
   } catch { /* ignore */ }
   const defaults = getDefaultForms();
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(defaults));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(defaults));
+  } catch { /* ignore */ }
   return defaults;
 }
 
 export function saveForms(forms: InspectionForm[]): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(forms));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(forms));
+  } catch { /* ignore */ }
   window.dispatchEvent(new Event(FORMS_CHANGE_EVENT));
   pushSyncToServer({ forms, replaceForms: true });
 }
 
+// ============================================================
+// Respostas / Laudos Enviados de Campo
+// ============================================================
 export interface FormResponse {
   id: string;
   formId: string;
@@ -180,72 +205,33 @@ export interface FormResponse {
 }
 
 export const RESPONSES_CHANGE_EVENT = 'da_form_responses_changed';
-const RESPONSES_STORAGE_KEY = 'da_inspecoes_form_responses_v1';
+const RESPONSES_STORAGE_KEY = 'da_inspecoes_form_responses_prod_v1';
 
 let memoryResponses: FormResponse[] | null = null;
 let memoryExpenses: InspectorExpense[] | null = null;
+let memoryClients: SystemClient[] | null = null;
+let memoryOrders: ServiceOrder[] | null = null;
 
 function getDefaultFormResponses(): FormResponse[] {
-  const defaultForms = getDefaultForms();
-  const f1 = defaultForms[0];
-  return [
-    {
-      id: 'resp_default_001',
-      formId: 'f1',
-      formName: 'Diligenciamento Q (Fabricação e Solda)',
-      category: 'Qualidade & Fabricação',
-      inspectorName: 'Matheus Stanley',
-      submittedAt: new Date().toISOString(),
-      fieldsSnapshot: f1?.fields || [],
-      answers: {
-        f1_1: 'OV-2026-0842 / CORACORTHE',
-        f1_2: '48',
-        f1_3: 'DES-A754615 Rev.02',
-        f1_4: '705275-ESTRUTURAL',
-        f1_5: 'Conforme',
-        f1_6: 'Aprovado',
-        f1_8: 'Inspeção dimensional e visual de solda concluída em 100% do lote. Cordões de solda contínuos, isentos de trincas, mordeduras ou porosidades superficiais. Rastreabilidade de matéria-prima validada conforme certificado de usina.',
-      },
-      attachments: [
-        {
-          fieldId: 'f1_7',
-          type: 'photo',
-          name: 'Inspecao_Visual_Solda_01.jpg',
-          url: 'https://images.unsplash.com/photo-1504917595217-d4dc5ebe6122?w=800&q=80',
-        },
-        {
-          fieldId: 'f1_7',
-          type: 'photo',
-          name: 'Controle_Dimensional_Peca_02.jpg',
-          url: 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?w=800&q=80',
-        },
-      ],
-    },
-  ];
+  return [];
 }
 
 export function getFormResponses(formId?: string): FormResponse[] {
-  if (memoryResponses && memoryResponses.length > 0) {
+  if (memoryResponses) {
     if (formId) return memoryResponses.filter(r => r.formId === formId);
     return memoryResponses;
   }
   try {
     const stored = localStorage.getItem(RESPONSES_STORAGE_KEY);
     if (stored) {
-      const all: FormResponse[] = JSON.parse(stored);
-      if (all.length > 0) {
-        memoryResponses = all;
-        if (formId) return all.filter(r => r.formId === formId);
-        return all;
-      }
+      const all = (JSON.parse(stored) as FormResponse[]).filter(r => r && r.id !== 'resp_default_001');
+      memoryResponses = all;
+      if (formId) return all.filter(r => r.formId === formId);
+      return all;
     }
   } catch { /* ignore */ }
   const defaults = getDefaultFormResponses();
   memoryResponses = defaults;
-  try {
-    localStorage.setItem(RESPONSES_STORAGE_KEY, JSON.stringify(defaults));
-  } catch { /* ignore */ }
-  if (formId) return defaults.filter(r => r.formId === formId);
   return defaults;
 }
 
@@ -257,7 +243,6 @@ export function saveFormResponse(response: FormResponse): void {
   try {
     localStorage.setItem(RESPONSES_STORAGE_KEY, JSON.stringify(updated));
   } catch {
-    // Caso o localStorage exceda a cota com muitas fotos, salva os mais recentes
     try {
       localStorage.setItem(RESPONSES_STORAGE_KEY, JSON.stringify(updated.slice(0, 15)));
     } catch { /* ignore */ }
@@ -285,7 +270,7 @@ export interface InspectorExpense {
 }
 
 export const EXPENSES_CHANGE_EVENT = 'da_expenses_changed';
-const EXPENSES_STORAGE_KEY = 'da_inspecoes_expenses_v1';
+const EXPENSES_STORAGE_KEY = 'da_inspecoes_expenses_prod_v1';
 
 export function getExpenses(): InspectorExpense[] {
   if (memoryExpenses) return memoryExpenses;
@@ -297,6 +282,7 @@ export function getExpenses(): InspectorExpense[] {
       return parsed;
     }
   } catch { /* ignore */ }
+  memoryExpenses = [];
   return [];
 }
 
@@ -315,10 +301,108 @@ export function saveExpense(expense: InspectorExpense): void {
   pushSyncToServer({ expenses: updated });
 }
 
-// -------- Usuários Cadastrados no Sistema (com Senha Padrão 123456 e Troca no 1º Acesso) --------
+// ============================================================
+// Clientes Cadastrados no Sistema
+// ============================================================
+export interface SystemClient {
+  id: string;
+  companyName: string;
+  cnpj: string;
+  contactName: string;
+  email: string;
+  phone: string;
+  address?: string;
+  activeOvs: number;
+  status: 'ativo' | 'inativo';
+  createdAt?: string;
+}
+
+export const CLIENTS_CHANGE_EVENT = 'da_clients_changed';
+const CLIENTS_STORAGE_KEY = 'da_inspecoes_clients_prod_v1';
+
+export function getClients(): SystemClient[] {
+  if (memoryClients) return memoryClients;
+  try {
+    const stored = localStorage.getItem(CLIENTS_STORAGE_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored) as SystemClient[];
+      memoryClients = parsed;
+      return parsed;
+    }
+  } catch { /* ignore */ }
+  memoryClients = [];
+  return [];
+}
+
+export function saveClients(clients: SystemClient[], deletedClientIds?: string[]): void {
+  memoryClients = clients;
+  try {
+    localStorage.setItem(CLIENTS_STORAGE_KEY, JSON.stringify(clients));
+  } catch { /* ignore */ }
+  window.dispatchEvent(new Event(CLIENTS_CHANGE_EVENT));
+  pushSyncToServer({ clients, replaceClients: true, deletedClientIds });
+}
+
+// ============================================================
+// Ordens de Serviço / Demandas de Campo
+// ============================================================
+export interface ServiceOrder {
+  id: string;
+  code: string;
+  client: string;
+  location: string;
+  inspector: string;
+  inspectorEmail?: string;
+  type: string;
+  formId?: string;
+  status: 'Concluída' | 'Em Andamento' | 'Agendada' | 'Pendente' | 'Cancelada';
+  date: string; // YYYY-MM-DD ou DD/MM/YYYY
+  StartTime?: string;
+  EndTime?: string;
+  progress: number;
+  notes?: string;
+  responseId?: string;
+  createdAt?: string;
+}
+
+export const ORDERS_CHANGE_EVENT = 'da_orders_changed';
+const ORDERS_STORAGE_KEY = 'da_inspecoes_orders_prod_v1';
+
+export function getServiceOrders(): ServiceOrder[] {
+  if (memoryOrders) return memoryOrders;
+  try {
+    const stored = localStorage.getItem(ORDERS_STORAGE_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored) as ServiceOrder[];
+      memoryOrders = parsed;
+      return parsed;
+    }
+  } catch { /* ignore */ }
+  memoryOrders = [];
+  return [];
+}
+
+export function saveServiceOrders(orders: ServiceOrder[], deletedOrderIds?: string[]): void {
+  memoryOrders = orders;
+  try {
+    localStorage.setItem(ORDERS_STORAGE_KEY, JSON.stringify(orders));
+  } catch { /* ignore */ }
+  window.dispatchEvent(new Event(ORDERS_CHANGE_EVENT));
+  pushSyncToServer({ orders, replaceOrders: true, deletedOrderIds });
+}
+
+export function upsertServiceOrder(order: ServiceOrder): void {
+  const existing = getServiceOrders();
+  const updated = [order, ...existing.filter(o => o.id !== order.id && o.code !== order.code)];
+  saveServiceOrders(updated);
+}
+
+// ============================================================
+// Usuários Cadastrados no Sistema (com Senha Padrão 123456 e Troca no 1º Acesso)
+// ============================================================
 export const DEFAULT_INITIAL_PASSWORD = '123456';
 export const USERS_CHANGE_EVENT = 'da_users_changed';
-const USERS_STORAGE_KEY = 'da_inspecoes_users_v2';
+const USERS_STORAGE_KEY = 'da_inspecoes_users_prod_v1';
 
 export interface SystemUser {
   id: string;
@@ -354,28 +438,12 @@ const DEFAULT_SYSTEM_USERS: SystemUser[] = [
     mustChangePassword: false,
     updatedAt: 0,
   },
-  {
-    id: 'usr_2',
-    name: 'Teste Cliente',
-    email: 'testecliente@gmail.com',
-    password: DEFAULT_INITIAL_PASSWORD,
-    role: 'cliente',
-    status: 'ativo',
-    company: 'CORACORTHE',
-    mustChangePassword: true,
-    updatedAt: 0,
-  },
-  {
-    id: 'usr_3',
-    name: 'João Silva (Inspetor)',
-    email: 'testeinspetor@gmail.com',
-    password: DEFAULT_INITIAL_PASSWORD,
-    role: 'inspetor',
-    status: 'ativo',
-    mustChangePassword: true,
-    updatedAt: 0,
-  },
 ];
+
+const LEGACY_TEST_EMAILS = new Set([
+  'testecliente@gmail.com',
+  'testeinspetor@gmail.com',
+]);
 
 let memoryUsers: SystemUser[] | null = null;
 
@@ -396,6 +464,7 @@ export function mergeSystemUsersList(existing: SystemUser[] = [], incoming: Syst
   for (const u of existing) {
     if (!u) continue;
     const key = getKey(u);
+    if (LEGACY_TEST_EMAILS.has(key) && (!u.updatedAt || u.updatedAt === 0)) continue;
     if (key) map.set(key, u);
   }
 
@@ -403,6 +472,7 @@ export function mergeSystemUsersList(existing: SystemUser[] = [], incoming: Syst
     if (!u) continue;
     const key = getKey(u);
     if (!key) continue;
+    if (LEGACY_TEST_EMAILS.has(key) && (!u.updatedAt || u.updatedAt === 0)) continue;
     const prev = map.get(key);
     if (!prev) {
       map.set(key, u);
@@ -571,6 +641,12 @@ export async function pushSyncToServer(payload: {
   replaceForms?: boolean;
   responses?: FormResponse[];
   expenses?: InspectorExpense[];
+  clients?: SystemClient[];
+  replaceClients?: boolean;
+  deletedClientIds?: string[];
+  orders?: ServiceOrder[];
+  replaceOrders?: boolean;
+  deletedOrderIds?: string[];
   users?: SystemUser[];
   replaceUsers?: boolean;
   deletedUserIds?: string[];
@@ -610,7 +686,6 @@ export async function syncFromServer(): Promise<boolean> {
       if (res.ok) {
         const data = await res.json();
         applyServerSyncData(data);
-        // Se o servidor ainda estiver vazio ou se este dispositivo tiver usuários modificados ainda não sincronizados
         const localUsers = getSystemUsers();
         const serverUsers: SystemUser[] = Array.isArray(data.users) ? data.users : [];
         const hasNewerLocalUser = localUsers.some(lu => {
@@ -628,6 +703,8 @@ export async function syncFromServer(): Promise<boolean> {
               forms: getForms(),
               responses: getFormResponses(),
               expenses: getExpenses(),
+              clients: getClients(),
+              orders: getServiceOrders(),
               users: localUsers,
             }),
           });
@@ -672,8 +749,12 @@ function applyServerSyncData(data: any): void {
   if (Array.isArray(data.responses)) {
     const localResponses = getFormResponses();
     const map = new Map<string, FormResponse>();
-    for (const r of localResponses) map.set(r.id, r);
-    for (const r of data.responses) map.set(r.id, r);
+    for (const r of localResponses) {
+      if (r && r.id !== 'resp_default_001') map.set(r.id, r);
+    }
+    for (const r of data.responses) {
+      if (r && r.id !== 'resp_default_001') map.set(r.id, r);
+    }
     const merged = Array.from(map.values()).sort(
       (a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime()
     );
@@ -716,6 +797,50 @@ function applyServerSyncData(data: any): void {
       window.dispatchEvent(new Event(EXPENSES_CHANGE_EVENT));
     }
   }
+
+  if (Array.isArray(data.clients)) {
+    const localClients = getClients();
+    const map = new Map<string, SystemClient>();
+    for (const c of localClients) map.set(c.id, c);
+    for (const c of data.clients) map.set(c.id, c);
+    const merged = Array.from(map.values());
+    const prevCount = memoryClients ? memoryClients.length : 0;
+    memoryClients = merged;
+    try {
+      const currentStr = localStorage.getItem(CLIENTS_STORAGE_KEY);
+      const nextStr = JSON.stringify(merged);
+      if (currentStr !== nextStr) {
+        localStorage.setItem(CLIENTS_STORAGE_KEY, nextStr);
+        window.dispatchEvent(new Event(CLIENTS_CHANGE_EVENT));
+      } else if (merged.length !== prevCount) {
+        window.dispatchEvent(new Event(CLIENTS_CHANGE_EVENT));
+      }
+    } catch {
+      window.dispatchEvent(new Event(CLIENTS_CHANGE_EVENT));
+    }
+  }
+
+  if (Array.isArray(data.orders)) {
+    const localOrders = getServiceOrders();
+    const map = new Map<string, ServiceOrder>();
+    for (const o of localOrders) map.set(o.id, o);
+    for (const o of data.orders) map.set(o.id, o);
+    const merged = Array.from(map.values());
+    const prevCount = memoryOrders ? memoryOrders.length : 0;
+    memoryOrders = merged;
+    try {
+      const currentStr = localStorage.getItem(ORDERS_STORAGE_KEY);
+      const nextStr = JSON.stringify(merged);
+      if (currentStr !== nextStr) {
+        localStorage.setItem(ORDERS_STORAGE_KEY, nextStr);
+        window.dispatchEvent(new Event(ORDERS_CHANGE_EVENT));
+      } else if (merged.length !== prevCount) {
+        window.dispatchEvent(new Event(ORDERS_CHANGE_EVENT));
+      }
+    } catch {
+      window.dispatchEvent(new Event(ORDERS_CHANGE_EVENT));
+    }
+  }
 }
 
 // Iniciar polling automático e escuta entre abas
@@ -724,6 +849,8 @@ if (typeof window !== 'undefined') {
     if (e.key === STORAGE_KEY) window.dispatchEvent(new Event(FORMS_CHANGE_EVENT));
     if (e.key === RESPONSES_STORAGE_KEY) window.dispatchEvent(new Event(RESPONSES_CHANGE_EVENT));
     if (e.key === EXPENSES_STORAGE_KEY) window.dispatchEvent(new Event(EXPENSES_CHANGE_EVENT));
+    if (e.key === CLIENTS_STORAGE_KEY) window.dispatchEvent(new Event(CLIENTS_CHANGE_EVENT));
+    if (e.key === ORDERS_STORAGE_KEY) window.dispatchEvent(new Event(ORDERS_CHANGE_EVENT));
     if (e.key === USERS_STORAGE_KEY) window.dispatchEvent(new Event(USERS_CHANGE_EVENT));
   });
 
@@ -748,4 +875,3 @@ export function newFormField(type: FieldType = 'text'): FormField {
       : [],
   };
 }
-

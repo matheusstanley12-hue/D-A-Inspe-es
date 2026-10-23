@@ -1,9 +1,14 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Calendar as BigCalendar, dateFnsLocalizer } from 'react-big-calendar';
 import { format, parse, startOfWeek, getDay, addMonths, subMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 import { ChevronLeft, ChevronRight, ChevronDown, Calendar as CalendarIcon, Check, Search, FileText, Tag, MapPin, Clock, User, X } from 'react-feather';
+import { 
+  getServiceOrders, ORDERS_CHANGE_EVENT, type ServiceOrder,
+  getSystemUsers, USERS_CHANGE_EVENT, type SystemUser,
+  getFormResponses, RESPONSES_CHANGE_EVENT, type FormResponse
+} from './stores/formulariosStore';
 
 const locales = {
   'pt-BR': ptBR,
@@ -17,74 +22,23 @@ const localizer = dateFnsLocalizer({
   locales,
 });
 
-// --- MOCK DATA ---
-const today = new Date();
-const MOCK_EVENTS = [
-  {
-    id: 1,
-    title: 'CORACORTHE',
-    start: new Date(today.getFullYear(), today.getMonth(), today.getDate(), 10, 0),
-    end: new Date(today.getFullYear(), today.getMonth(), today.getDate(), 12, 0),
-    inspector: 'João Silva',
-    type: 'inspection',
-    color: 'red',
-    os: 'OS-2024-001',
-    status: 'Finalizada',
-    taskType: 'Inspeção Técnica',
-    address: 'Av. Industrial, 500 - Distrito Industrial',
-    duration: '2h00min'
-  },
-  {
-    id: 2,
-    title: 'Fábrica ABC',
-    start: new Date(today.getFullYear(), today.getMonth(), today.getDate(), 16, 0),
-    end: new Date(today.getFullYear(), today.getMonth(), today.getDate(), 17, 30),
-    inspector: 'Matheus Stanley',
-    type: 'inspection',
-    color: 'red',
-    os: 'OS-2024-002',
-    status: 'Em andamento',
-    taskType: 'Manutenção Preventiva',
-    address: 'Rodovia BR-101, Km 42',
-    duration: '1h30min'
-  },
-  {
-    id: 3,
-    title: 'Alinhamento',
-    start: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1, 8, 30),
-    end: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1, 10, 0),
-    inspector: 'Todos',
-    type: 'meeting',
-    color: 'red',
-    striped: true,
-    os: 'OS-INTERNA',
-    status: 'Agendada',
-    taskType: 'Reunião',
-    address: 'Sede D&A Inspeções',
-    duration: '1h30min'
-  },
-  {
-    id: 4,
-    title: 'Mercado Central',
-    start: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 2, 14, 0),
-    end: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 2, 18, 0),
-    inspector: 'Ana Costa',
-    type: 'inspection',
-    color: 'red',
-    os: 'OS-2024-004',
-    status: 'Agendada',
-    taskType: 'Visita técnica',
-    address: 'Rua do Mercado, 120 - Centro',
-    duration: '4h00min'
-  }
-];
+const COLOR_PALETTE = ['#2563eb', '#059669', '#d97706', '#dc2626', '#7c3aed', '#0891b2'];
 
-const INSPECTORS = [
-  { id: 'all', name: 'Todos os Inspetores', color: '#1e40af' },
-  { id: '1', name: 'João Silva', color: '#ef4444' },
-  { id: '2', name: 'Matheus Stanley', color: '#3b82f6' },
-  { id: '3', name: 'Ana Costa', color: '#10b981' },
-];
+export interface OperationEvent {
+  id: string | number;
+  title: string;
+  start: Date;
+  end: Date;
+  inspector: string;
+  type: string;
+  color: string;
+  striped?: boolean;
+  os: string;
+  status: string;
+  taskType: string;
+  address: string;
+  duration: string;
+}
 
 // --- CUSTOM COMPONENTS DECLARED OUTSIDE RENDER ---
 const CustomToolbar = (toolbar: any) => {
@@ -179,9 +133,94 @@ export default function OperationCalendarView() {
   const [selectedInspector, setSelectedInspector] = useState('all');
   const [selectedEvent, setSelectedEvent] = useState<any>(null);
 
-  const filteredEvents = MOCK_EVENTS.filter(e => 
-    selectedInspector === 'all' || e.inspector === INSPECTORS.find(i => i.id === selectedInspector)?.name
+  const [orders, setOrders] = useState<ServiceOrder[]>(() => getServiceOrders());
+  const [users, setUsers] = useState<SystemUser[]>(() => getSystemUsers().filter(u => u.role === 'inspetor' || u.role === 'gestor'));
+  const [responses, setResponses] = useState<FormResponse[]>(() => getFormResponses());
+
+  useEffect(() => {
+    const updateOrd = () => setOrders(getServiceOrders());
+    const updateUsers = () => setUsers(getSystemUsers().filter(u => u.role === 'inspetor' || u.role === 'gestor'));
+    const updateResp = () => setResponses(getFormResponses());
+
+    window.addEventListener(ORDERS_CHANGE_EVENT, updateOrd);
+    window.addEventListener(USERS_CHANGE_EVENT, updateUsers);
+    window.addEventListener(RESPONSES_CHANGE_EVENT, updateResp);
+
+    return () => {
+      window.removeEventListener(ORDERS_CHANGE_EVENT, updateOrd);
+      window.removeEventListener(USERS_CHANGE_EVENT, updateUsers);
+      window.removeEventListener(RESPONSES_CHANGE_EVENT, updateResp);
+    };
+  }, []);
+
+  const inspectorsList = [
+    { id: 'all', name: 'Todos os Inspetores', color: '#1e40af' },
+    ...users.map((u, i) => ({
+      id: u.id,
+      name: u.name,
+      color: COLOR_PALETTE[i % COLOR_PALETTE.length]
+    }))
+  ];
+
+  // Construir eventos de calendário a partir de ordens reais e laudos enviados
+  const calendarEvents: OperationEvent[] = [];
+
+  orders.forEach((o, idx) => {
+    let startDate = new Date();
+    if (o.date) {
+      const parts = o.date.split('-');
+      if (parts.length === 3) {
+        const [h, m] = (o.StartTime || '08:00').split(':').map(Number);
+        startDate = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]), h || 8, m || 0);
+      }
+    }
+    const endDate = new Date(startDate.getTime() + 2 * 60 * 60 * 1000);
+    const color = COLOR_PALETTE[idx % COLOR_PALETTE.length];
+
+    calendarEvents.push({
+      id: o.id,
+      title: o.client,
+      start: startDate,
+      end: endDate,
+      inspector: o.inspector,
+      type: 'inspection',
+      color,
+      os: o.code,
+      status: o.status,
+      taskType: o.type,
+      address: o.location || 'Em campo',
+      duration: '2h00min'
+    });
+  });
+
+  responses.forEach((r) => {
+    const d = new Date(r.submittedAt);
+    if (!isNaN(d.getTime())) {
+      const osCode = r.answers?.os_numero || `LAUDO-${r.id.slice(0, 6)}`;
+      if (!calendarEvents.some(e => e.os === osCode)) {
+        calendarEvents.push({
+          id: r.id,
+          title: r.answers?.os_cliente || r.answers?.empresa || r.formName,
+          start: d,
+          end: new Date(d.getTime() + 90 * 60 * 1000),
+          inspector: r.inspectorName,
+          type: 'inspection',
+          color: '#059669',
+          os: osCode,
+          status: 'Finalizada',
+          taskType: r.category || 'Inspeção Técnica',
+          address: r.answers?.os_endereco || 'Em campo',
+          duration: '1h30min'
+        });
+      }
+    }
+  });
+
+  const filteredEvents = calendarEvents.filter(e => 
+    selectedInspector === 'all' || e.inspector === inspectorsList.find(i => i.id === selectedInspector)?.name
   );
+
+  const today = new Date();
 
   // Mini Calendar Helper (Simple Month View)
   const renderMiniCalendar = () => {
@@ -263,7 +302,7 @@ export default function OperationCalendarView() {
               <ChevronDown size={14} className="mr-1.5" /> Agenda dos Inspetores
             </div>
             <div className="mt-1 space-y-1 px-1">
-              {INSPECTORS.map(insp => (
+              {inspectorsList.map(insp => (
                 <div 
                   key={insp.id}
                   onClick={() => setSelectedInspector(insp.id)}

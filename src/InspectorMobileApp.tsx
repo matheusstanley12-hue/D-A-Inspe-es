@@ -9,11 +9,13 @@ import { generateCorporateFormResponsePDF } from './utils/pdfHeader';
 import toast from 'react-hot-toast';
 import logoUrl from './assets/logo.jpg';
 import logoTightUrl from './assets/logo-tight.png';
-import type { InspectionForm, FormResponse, InspectorExpense, ExpenseCategory } from './stores/formulariosStore';
+import type { InspectionForm, FormResponse, InspectorExpense, ExpenseCategory, SystemClient, ServiceOrder } from './stores/formulariosStore';
 import { 
   getForms, saveFormResponse, FORMS_CHANGE_EVENT,
   getFormResponses, RESPONSES_CHANGE_EVENT,
   getExpenses, saveExpense, EXPENSES_CHANGE_EVENT,
+  getClients, CLIENTS_CHANGE_EVENT,
+  getServiceOrders, upsertServiceOrder, ORDERS_CHANGE_EVENT,
   findSystemUserByEmail,
   syncFromServer
 } from './stores/formulariosStore';
@@ -30,7 +32,6 @@ function formatUserName(email?: string): string {
   if (registered?.name) return registered.name.replace(/\s*\(Inspetor\)\s*/i, '');
   const lower = email.toLowerCase().trim();
   if (lower.includes('matheus')) return 'Matheus Stanley';
-  if (lower === 'testeinspetor@gmail.com') return 'João Silva';
   const local = email.split('@')[0].replace(/[._-]+/g, ' ');
   return local.replace(/\b\w/g, c => c.toUpperCase()) || 'Inspetor D&A';
 }
@@ -348,23 +349,25 @@ function SignaturePadBox({
 export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: () => void; userEmail?: string }) {
   const displayUserName = formatUserName(userEmail);
   const [activeTab, setActiveTab] = useState<'rota' | 'gastos' | 'formularios' | 'preenchidos'>('rota');
-  const [activeFormId, setActiveFormId] = useState<number | null>(null);
+  const [activeFormId, setActiveFormId] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
-  const [startedDestinations, setStartedDestinations] = useState<number[]>([2]);
-  const [completedDestinations, setCompletedDestinations] = useState<number[]>([1]);
   const [isSyncing, setIsSyncing] = useState(false);
+
+  // Clientes e Ordens de Serviço reais sincronizadas com o Gestor
+  const [clientsList, setClientsList] = useState<SystemClient[]>(() => getClients());
+  const [ordersList, setOrdersList] = useState<ServiceOrder[]>(() => getServiceOrders());
 
   // Assinatura do Inspetor (compartilhada entre formulário dinâmico e O.S. da rota)
   const [inspectorSignature, setInspectorSignature] = useState<string>('');
   const [signatureModalTarget, setSignatureModalTarget] = useState<'dynamic' | 'os' | null>(null);
 
   // Campos controlados do Formulário de O.S. da Rota (aba Inspeções)
-  const [osClientKey, setOsClientKey] = useState<string>('mercado');
-  const [osClientName, setOsClientName] = useState<string>('Mercado Central, BH');
-  const [osCpfCnpj, setOsCpfCnpj] = useState<string>('55.666.777/0001-22');
-  const [osAddress, setOsAddress] = useState<string>('Av. Augusto de Lima, 744 - Centro, BH');
+  const [osClientKey, setOsClientKey] = useState<string>('custom');
+  const [osClientName, setOsClientName] = useState<string>('');
+  const [osCpfCnpj, setOsCpfCnpj] = useState<string>('');
+  const [osAddress, setOsAddress] = useState<string>('');
   const [osType, setOsType] = useState<string>('Diligenciamento');
-  const [osOrderNumber, setOsOrderNumber] = useState<string>('OS-2026-0142');
+  const [osOrderNumber, setOsOrderNumber] = useState<string>(() => `OS-${new Date().getFullYear()}-${String(Math.floor(1000 + Math.random() * 9000))}`);
   const [osStatusResult, setOsStatusResult] = useState<string>('Conforme / Aprovado');
   const [osNotes, setOsNotes] = useState<string>('');
   const [osPhotos, setOsPhotos] = useState<{ type: 'photo' | 'video' | 'file'; name: string; url: string }[]>([]);
@@ -423,13 +426,7 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
   const totalHotel = gastos.filter(g => g.category === 'hotel').reduce((acc, c) => acc + c.valor, 0);
   const totalGasto = gastos.reduce((acc, curr) => acc + curr.valor, 0);
 
-  const mockRoute = [
-    { id: 1, time: '08:00', location: 'Sede D&A', status: 'done' },
-    { id: 2, time: '09:30', location: 'Mercado Central, BH', type: 'INSP-EST' },
-    { id: 3, time: '14:00', location: 'Fábrica ABC, Contagem', type: 'INSP-SOLD' }
-  ];
-
-  // Sincronizar com os formulários, respostas e gastos do sistema em tempo real
+  // Sincronizar com os formulários, respostas, gastos, clientes e ordens do sistema em tempo real
   useEffect(() => {
     const updateForms = () => {
       const all = getForms();
@@ -441,13 +438,23 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
     const updateExpenses = () => {
       setGastos(getExpenses());
     };
+    const updateClients = () => {
+      setClientsList(getClients());
+    };
+    const updateOrders = () => {
+      setOrdersList(getServiceOrders());
+    };
     window.addEventListener(FORMS_CHANGE_EVENT, updateForms);
     window.addEventListener(RESPONSES_CHANGE_EVENT, updateResponses);
     window.addEventListener(EXPENSES_CHANGE_EVENT, updateExpenses);
+    window.addEventListener(CLIENTS_CHANGE_EVENT, updateClients);
+    window.addEventListener(ORDERS_CHANGE_EVENT, updateOrders);
     return () => {
       window.removeEventListener(FORMS_CHANGE_EVENT, updateForms);
       window.removeEventListener(RESPONSES_CHANGE_EVENT, updateResponses);
       window.removeEventListener(EXPENSES_CHANGE_EVENT, updateExpenses);
+      window.removeEventListener(CLIENTS_CHANGE_EVENT, updateClients);
+      window.removeEventListener(ORDERS_CHANGE_EVENT, updateOrders);
     };
   }, []);
 
@@ -462,55 +469,75 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
     }
   };
 
-  const handleStartInspection = (id: number) => {
+  const handleStartInspection = (order: ServiceOrder) => {
     setIsStarting(true);
     setTimeout(() => {
       setIsStarting(false);
-      setStartedDestinations(prev => prev.includes(id) ? prev : [...prev, id]);
-      toast.success('Ordem de Serviço gerada automaticamente e enviada para o Gestor!');
-    }, 600);
+      upsertServiceOrder({
+        ...order,
+        status: 'Em Andamento',
+        progress: Math.max(order.progress || 0, 50),
+      });
+      setOrdersList(getServiceOrders());
+      toast.success(`Inspeção ${order.code} iniciada e sincronizada com o Gestor!`);
+    }, 400);
   };
 
-  // Abrir formulário de O.S. da Rota já preenchido com os dados da parada selecionada
-  const handleOpenOsForm = (stopId: number) => {
-    setActiveFormId(stopId);
+  // Abrir formulário de O.S. (de uma demanda agendada ou nova O.S. avulsa em campo)
+  const handleOpenOsForm = (order?: ServiceOrder) => {
     setInspectorSignature('');
     setOsPhotos([]);
-    if (stopId === 3) {
-      setOsClientKey('abc');
-      setOsClientName('Fábrica ABC, Contagem');
-      setOsCpfCnpj('98.765.432/0001-10');
-      setOsAddress('Av. Industrial, 500 - Contagem, MG');
-      setOsType('Solda');
-      setOsOrderNumber(`OS-2026-0${stopId}08`);
+    if (order) {
+      setActiveFormId(order.id);
+      const matchedClient = clientsList.find(
+        c => c.companyName.trim().toLowerCase() === order.client.trim().toLowerCase()
+      );
+      if (matchedClient) {
+        setOsClientKey(matchedClient.id);
+        setOsClientName(matchedClient.companyName);
+        setOsCpfCnpj(matchedClient.cnpj || '');
+        setOsAddress(order.location || matchedClient.address || '');
+      } else {
+        setOsClientKey('custom');
+        setOsClientName(order.client);
+        setOsCpfCnpj('');
+        setOsAddress(order.location || '');
+      }
+      setOsType(order.type || 'Diligenciamento');
+      setOsOrderNumber(order.code || `OS-${new Date().getFullYear()}-${String(Math.floor(1000 + Math.random() * 9000))}`);
       setOsStatusResult('Conforme / Aprovado');
-      setOsNotes('Inspeção visual e dimensional de solda realizada conforme procedimento técnico D&A.');
+      setOsNotes(order.notes || '');
     } else {
-      setOsClientKey('mercado');
-      setOsClientName('Mercado Central, BH');
-      setOsCpfCnpj('55.666.777/0001-22');
-      setOsAddress('Av. Augusto de Lima, 744 - Centro, BH');
+      setActiveFormId('new_os');
+      const firstClient = clientsList[0];
+      if (firstClient) {
+        setOsClientKey(firstClient.id);
+        setOsClientName(firstClient.companyName);
+        setOsCpfCnpj(firstClient.cnpj || '');
+        setOsAddress(firstClient.address || '');
+      } else {
+        setOsClientKey('custom');
+        setOsClientName('');
+        setOsCpfCnpj('');
+        setOsAddress('');
+      }
       setOsType('Diligenciamento');
-      setOsOrderNumber(`OS-2026-0${stopId}04`);
+      setOsOrderNumber(`OS-${new Date().getFullYear()}-${String(Math.floor(1000 + Math.random() * 9000))}`);
       setOsStatusResult('Conforme / Aprovado');
-      setOsNotes('Diligenciamento técnico em campo concluído dentro do cronograma previsto.');
+      setOsNotes('');
     }
   };
 
   const handleSelectOsClient = (val: string) => {
     setOsClientKey(val);
-    if (val === 'coracorthe') {
-      setOsClientName('Coracorthe Hardox Wearparts');
-      setOsCpfCnpj('12.345.678/0001-90');
-      setOsAddress('Coracorthe Hardox Wearparts, BH');
-    } else if (val === 'abc') {
-      setOsClientName('Fábrica ABC, Contagem');
-      setOsCpfCnpj('98.765.432/0001-10');
-      setOsAddress('Av. Industrial, 500 - Contagem, MG');
-    } else if (val === 'mercado') {
-      setOsClientName('Mercado Central, BH');
-      setOsCpfCnpj('55.666.777/0001-22');
-      setOsAddress('Av. Augusto de Lima, 744 - Centro, BH');
+    if (val === 'custom') {
+      return;
+    }
+    const found = clientsList.find(c => c.id === val);
+    if (found) {
+      setOsClientName(found.companyName);
+      setOsCpfCnpj(found.cnpj || '');
+      if (found.address) setOsAddress(found.address);
     }
   };
 
@@ -547,7 +574,7 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
   // Finalizar e Enviar o Formulário de O.S. da Rota (aba Inspeções)
   const handleSubmitOsForm = () => {
     if (!osClientName.trim()) {
-      toast.error('Selecione o Cliente antes de finalizar a O.S.');
+      toast.error('Informe o nome do Cliente / Unidade Inspecionada antes de finalizar a O.S.');
       return;
     }
 
@@ -560,27 +587,30 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
     const osFieldsSnapshot = [
       { id: 'os_numero', type: 'text' as const, label: 'Nº da Ordem de Serviço (O.S.)', required: true, options: [] },
       { id: 'os_cliente', type: 'text' as const, label: 'Cliente / Unidade Inspecionada', required: true, options: [] },
-      { id: 'os_cnpj', type: 'text' as const, label: 'CPF / CNPJ do Cliente', required: true, options: [] },
-      { id: 'os_endereco', type: 'text' as const, label: 'Endereço da Inspeção', required: true, options: [] },
+      { id: 'os_cnpj', type: 'text' as const, label: 'CPF / CNPJ do Cliente', required: false, options: [] },
+      { id: 'os_endereco', type: 'text' as const, label: 'Endereço da Inspeção', required: false, options: [] },
       { id: 'os_tipo', type: 'select' as const, label: 'Modalidade / Tipo de Inspeção', required: true, options: [] },
       { id: 'os_parecer', type: 'radio' as const, label: 'Parecer Técnico Final', required: true, options: [] },
       { id: 'os_observacoes', type: 'textarea' as const, label: 'Observações e Constatações Técnicas', required: false, options: [] },
       { id: 'os_fotos', type: 'photo' as const, label: 'Registro Fotográfico da O.S.', required: false, options: [] },
     ];
 
+    const finalCode = osOrderNumber.trim() || `OS-${new Date().getFullYear()}-${String(Math.floor(1000 + Math.random() * 9000))}`;
+    const responseId = createInspectorId('resp_os');
+
     const newResponse: FormResponse = {
-      id: createInspectorId('resp_os'),
-      formId: `os_rota_${activeFormId || 1}`,
-      formName: `Ordem de Serviço (${osType}) - ${osClientName}`,
+      id: responseId,
+      formId: `os_rota_${activeFormId || 'campo'}`,
+      formName: `Ordem de Serviço (${osType}) - ${osClientName.trim()}`,
       category: osType || 'Diligenciamento',
       inspectorName: displayUserName,
       inspectorSignature: inspectorSignature,
       submittedAt: new Date().toISOString(),
       answers: {
-        os_numero: osOrderNumber || 'OS-2026-0142',
-        os_cliente: osClientName,
-        os_cnpj: osCpfCnpj,
-        os_endereco: osAddress,
+        os_numero: finalCode,
+        os_cliente: osClientName.trim(),
+        os_cnpj: osCpfCnpj.trim() || 'Não informado',
+        os_endereco: osAddress.trim() || 'Em campo',
         os_tipo: osType,
         os_parecer: osStatusResult,
         os_observacoes: osNotes.trim() || 'Inspeção executada em conformidade com os requisitos técnicos da D&A Inspeções.',
@@ -592,10 +622,28 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
     saveFormResponse(newResponse);
     setFilledResponses(getFormResponses());
 
-    if (activeFormId !== null) {
-      setCompletedDestinations(prev => prev.includes(activeFormId) ? prev : [...prev, activeFormId]);
-      setStartedDestinations(prev => prev.filter(id => id !== activeFormId));
-    }
+    const existingOrder = activeFormId && activeFormId !== 'new_os'
+      ? ordersList.find(o => o.id === activeFormId)
+      : undefined;
+
+    upsertServiceOrder({
+      id: existingOrder?.id || createInspectorId('os'),
+      code: finalCode,
+      client: osClientName.trim(),
+      location: osAddress.trim() || existingOrder?.location || 'Em campo',
+      inspector: displayUserName,
+      inspectorEmail: userEmail,
+      type: osType,
+      status: 'Concluída',
+      date: existingOrder?.date || format(new Date(), 'yyyy-MM-dd'),
+      StartTime: existingOrder?.StartTime || format(new Date(), 'HH:mm'),
+      EndTime: format(new Date(), 'HH:mm'),
+      progress: 100,
+      notes: osNotes.trim(),
+      responseId,
+      createdAt: existingOrder?.createdAt || new Date().toISOString(),
+    });
+    setOrdersList(getServiceOrders());
 
     setSignatureModalTarget(null);
     setActiveFormId(null);
@@ -800,27 +848,6 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
     };
     reader.readAsDataURL(file);
     e.target.value = '';
-  };
-
-  // Simulação rápida para teste sem câmera
-  const handleSimulateMedia = (fieldId: string, type: 'photo' | 'video' | 'file') => {
-    const randomSuffix = Math.random().toString(36).slice(2, 6);
-    const mockItem = {
-      type,
-      name: type === 'photo' 
-        ? `Foto_Evidencia_${randomSuffix}.jpg` 
-        : type === 'video' 
-        ? `Video_Operacao_${randomSuffix}.mp4` 
-        : `Laudo_Tecnico_${randomSuffix}.pdf`,
-      url: type === 'photo' 
-        ? 'https://images.unsplash.com/photo-1504917595217-d4dc5ebe6122?w=400&h=300&fit=crop' 
-        : '#'
-    };
-    setFormAttachments(prev => ({
-      ...prev,
-      [fieldId]: [...(prev[fieldId] || []), mockItem]
-    }));
-    toast.success(`${type === 'photo' ? 'Foto' : type === 'video' ? 'Vídeo' : 'Documento'} adicionado!`);
   };
 
   const handleRemoveAttachment = (fieldId: string, index: number) => {
@@ -1131,27 +1158,34 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
                       <div className="space-y-2">
                         <input
                           type="file"
-                          id={`photo-input-${field.id}`}
+                          id={`photo-camera-${field.id}`}
                           accept="image/*"
                           capture="environment"
                           multiple
                           className="hidden"
                           onChange={e => handleFileSelect(field.id, 'photo', e)}
                         />
+                        <input
+                          type="file"
+                          id={`photo-gallery-${field.id}`}
+                          accept="image/*"
+                          multiple
+                          className="hidden"
+                          onChange={e => handleFileSelect(field.id, 'photo', e)}
+                        />
                         <div className="grid grid-cols-2 gap-2">
                           <label
-                            htmlFor={`photo-input-${field.id}`}
-                            className="cursor-pointer bg-orange-50 border border-orange-200 hover:bg-orange-100 text-orange-700 font-bold text-xs py-2.5 px-3 rounded-xl flex items-center justify-center transition-colors"
+                            htmlFor={`photo-camera-${field.id}`}
+                            className="cursor-pointer bg-blue-50 border border-blue-200 hover:bg-blue-100 text-blue-700 font-bold text-xs py-2.5 px-3 rounded-xl flex items-center justify-center transition-colors"
                           >
                             <Camera size={14} className="mr-1.5" /> Tirar Foto
                           </label>
-                          <button
-                            type="button"
-                            onClick={() => handleSimulateMedia(field.id, 'photo')}
-                            className="bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs py-2.5 px-3 rounded-xl flex items-center justify-center transition-colors"
+                          <label
+                            htmlFor={`photo-gallery-${field.id}`}
+                            className="cursor-pointer bg-slate-100 border border-slate-200 hover:bg-slate-200 text-slate-700 font-bold text-xs py-2.5 px-3 rounded-xl flex items-center justify-center transition-colors"
                           >
-                            <Upload size={13} className="mr-1.5" /> Demo Rápida
-                          </button>
+                            <Upload size={13} className="mr-1.5" /> Galeria / Arquivo
+                          </label>
                         </div>
 
                         {/* Thumbnails */}
@@ -1180,26 +1214,32 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
                       <div className="space-y-2">
                         <input
                           type="file"
-                          id={`video-input-${field.id}`}
+                          id={`video-camera-${field.id}`}
                           accept="video/*"
                           capture="environment"
                           className="hidden"
                           onChange={e => handleFileSelect(field.id, 'video', e)}
                         />
+                        <input
+                          type="file"
+                          id={`video-gallery-${field.id}`}
+                          accept="video/*"
+                          className="hidden"
+                          onChange={e => handleFileSelect(field.id, 'video', e)}
+                        />
                         <div className="grid grid-cols-2 gap-2">
                           <label
-                            htmlFor={`video-input-${field.id}`}
+                            htmlFor={`video-camera-${field.id}`}
                             className="cursor-pointer bg-red-50 border border-red-200 hover:bg-red-100 text-red-700 font-bold text-xs py-2.5 px-3 rounded-xl flex items-center justify-center transition-colors"
                           >
                             <Video size={14} className="mr-1.5" /> Gravar Vídeo
                           </label>
-                          <button
-                            type="button"
-                            onClick={() => handleSimulateMedia(field.id, 'video')}
-                            className="bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs py-2.5 px-3 rounded-xl flex items-center justify-center transition-colors"
+                          <label
+                            htmlFor={`video-gallery-${field.id}`}
+                            className="cursor-pointer bg-slate-100 border border-slate-200 hover:bg-slate-200 text-slate-700 font-bold text-xs py-2.5 px-3 rounded-xl flex items-center justify-center transition-colors"
                           >
-                            <Upload size={13} className="mr-1.5" /> Demo Vídeo
-                          </button>
+                            <Upload size={13} className="mr-1.5" /> Galeria / Arquivo
+                          </label>
                         </div>
 
                         {(formAttachments[field.id] || []).map((file, i) => (
@@ -1226,26 +1266,17 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
                         <input
                           type="file"
                           id={`doc-input-${field.id}`}
-                          accept=".pdf,.doc,.docx,.xls,.xlsx,.zip"
+                          accept=".pdf,.doc,.docx,.xls,.xlsx,.zip,image/*"
                           multiple
                           className="hidden"
                           onChange={e => handleFileSelect(field.id, 'file', e)}
                         />
-                        <div className="grid grid-cols-2 gap-2">
-                          <label
-                            htmlFor={`doc-input-${field.id}`}
-                            className="cursor-pointer bg-blue-50 border border-blue-200 hover:bg-blue-100 text-blue-700 font-bold text-xs py-2.5 px-3 rounded-xl flex items-center justify-center transition-colors"
-                          >
-                            <Paperclip size={14} className="mr-1.5" /> Anexar Arquivo
-                          </label>
-                          <button
-                            type="button"
-                            onClick={() => handleSimulateMedia(field.id, 'file')}
-                            className="bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs py-2.5 px-3 rounded-xl flex items-center justify-center transition-colors"
-                          >
-                            <Upload size={13} className="mr-1.5" /> Demo Arquivo
-                          </button>
-                        </div>
+                        <label
+                          htmlFor={`doc-input-${field.id}`}
+                          className="w-full cursor-pointer bg-blue-50 border border-blue-200 hover:bg-blue-100 text-blue-700 font-bold text-xs py-3 px-4 rounded-xl flex items-center justify-center transition-colors"
+                        >
+                          <Paperclip size={14} className="mr-1.5" /> Anexar Documento / Laudo / Arquivo
+                        </label>
 
                         {(formAttachments[field.id] || []).map((file, i) => (
                           <div key={i} className="flex items-center justify-between p-2 bg-blue-50 border border-blue-200 rounded-xl text-xs font-bold text-blue-800">
@@ -1328,19 +1359,42 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
                         onChange={(e) => handleSelectOsClient(e.target.value)}
                         className="w-full bg-gray-50 border border-gray-200 rounded-xl p-2.5 text-xs sm:text-sm font-bold text-gray-800 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
                       >
-                        <option value="mercado">Mercado Central, BH</option>
-                        <option value="abc">Fábrica ABC, Contagem</option>
-                        <option value="coracorthe">Coracorthe Hardox Wearparts</option>
+                        {clientsList.length > 0 ? (
+                          <>
+                            {clientsList.map(c => (
+                              <option key={c.id} value={c.id}>{c.companyName}</option>
+                            ))}
+                            <option value="custom">Outro / Digitar Manualmente...</option>
+                          </>
+                        ) : (
+                          <option value="custom">Digitar Nome do Cliente...</option>
+                        )}
                       </select>
                     </div>
+
+                    {(osClientKey === 'custom' || clientsList.length === 0) && (
+                      <div>
+                        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1 block">
+                          Nome da Empresa / Cliente *
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Ex: Mineração do Sul, Usina Alfa..."
+                          value={osClientName}
+                          onChange={(e) => setOsClientName(e.target.value)}
+                          className="w-full bg-gray-50 border border-gray-200 rounded-xl p-2.5 text-xs sm:text-sm font-bold text-gray-700 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                        />
+                      </div>
+                    )}
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1 block">
-                          CPF / CNPJ
+                          CPF / CNPJ (Opcional)
                         </label>
                         <input
                           type="text"
+                          placeholder="Ex: 00.000.000/0001-00"
                           value={osCpfCnpj}
                           onChange={(e) => setOsCpfCnpj(e.target.value)}
                           className="w-full bg-gray-50 border border-gray-200 rounded-xl p-2.5 text-xs sm:text-sm font-bold text-gray-700"
@@ -1362,10 +1416,11 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
 
                     <div>
                       <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1 block">
-                        Endereço da Inspeção
+                        Endereço / Unidade da Inspeção
                       </label>
                       <input
                         type="text"
+                        placeholder="Ex: Rodovia BR-381, Km 45 - Betim, MG"
                         value={osAddress}
                         onChange={(e) => setOsAddress(e.target.value)}
                         className="w-full bg-gray-50 border border-gray-200 rounded-xl p-2.5 text-xs sm:text-sm font-bold text-gray-700"
@@ -1455,37 +1510,34 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
                     </label>
                     <input
                       type="file"
-                      id="os-photo-input"
+                      id="os-photo-camera"
                       accept="image/*"
                       capture="environment"
                       multiple
                       className="hidden"
                       onChange={handleOsPhotoSelect}
                     />
+                    <input
+                      type="file"
+                      id="os-photo-gallery"
+                      accept="image/*"
+                      multiple
+                      className="hidden"
+                      onChange={handleOsPhotoSelect}
+                    />
                     <div className="grid grid-cols-2 gap-2">
                       <label
-                        htmlFor="os-photo-input"
-                        className="cursor-pointer bg-orange-50 border border-orange-200 hover:bg-orange-100 text-orange-700 font-bold text-xs py-2.5 px-3 rounded-xl flex items-center justify-center transition-colors"
+                        htmlFor="os-photo-camera"
+                        className="cursor-pointer bg-blue-50 border border-blue-200 hover:bg-blue-100 text-blue-700 font-bold text-xs py-2.5 px-3 rounded-xl flex items-center justify-center transition-colors"
                       >
-                        <Camera size={14} className="mr-1.5" /> Tirar / Anexar Foto
+                        <Camera size={14} className="mr-1.5" /> Tirar Foto
                       </label>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setOsPhotos(prev => [
-                            ...prev,
-                            {
-                              type: 'photo',
-                              name: `Evidencia_OS_${prev.length + 1}.jpg`,
-                              url: 'https://images.unsplash.com/photo-1504917595217-d4dc5ebe6122?w=500&h=360&fit=crop',
-                            },
-                          ]);
-                          toast.success('Foto de demonstração adicionada à O.S.!');
-                        }}
-                        className="bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs py-2.5 px-3 rounded-xl flex items-center justify-center transition-colors cursor-pointer"
+                      <label
+                        htmlFor="os-photo-gallery"
+                        className="cursor-pointer bg-slate-100 border border-slate-200 hover:bg-slate-200 text-slate-700 font-bold text-xs py-2.5 px-3 rounded-xl flex items-center justify-center transition-colors"
                       >
-                        <Upload size={13} className="mr-1.5" /> Demo Foto
-                      </button>
+                        <Upload size={13} className="mr-1.5" /> Galeria / Arquivo
+                      </label>
                     </div>
 
                     {osPhotos.length > 0 && (
@@ -1527,16 +1579,34 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
               </div>
             </div>
           ) : activeTab === 'rota' ? (
-            /* 3. ABA MINHA ROTA */
+            /* 3. ABA MINHA ROTA / DEMANDAS */
             <div className="space-y-4">
+              {/* Botão de Ação Rápida: Nova O.S. em Campo */}
+              <button
+                type="button"
+                onClick={() => handleOpenOsForm()}
+                className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white p-3.5 rounded-2xl shadow-md flex items-center justify-between transition-all cursor-pointer group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center text-white shrink-0 group-hover:scale-105 transition-transform">
+                    <FilePlus size={20} />
+                  </div>
+                  <div className="text-left">
+                    <span className="text-xs font-black block leading-tight">+ Nova O.S. em Campo</span>
+                    <span className="text-[11px] text-blue-100 block">Iniciar atendimento avulso agora</span>
+                  </div>
+                </div>
+                <ChevronRight size={18} className="text-white/80" />
+              </button>
+
               {/* Card de Resumo do Dia */}
               <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs flex items-center justify-between">
                 <div>
                   <span className="text-[10px] font-extrabold text-blue-600 uppercase tracking-wider block">
-                    Agenda de Campo
+                    Agenda & Demandas
                   </span>
                   <h2 className="text-base font-extrabold text-slate-900 leading-tight mt-0.5">
-                    Sua Rota Hoje
+                    Ordens de Serviço ({ordersList.length})
                   </h2>
                 </div>
                 <span className="text-xs font-extrabold text-blue-700 bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-xl">
@@ -1544,100 +1614,110 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
                 </span>
               </div>
 
-              <div className="relative pl-2 space-y-4">
-                <div className="absolute left-[17px] top-5 bottom-6 w-0.5 bg-slate-200"></div>
+              {ordersList.length === 0 ? (
+                <div className="bg-white rounded-2xl p-8 border border-dashed border-slate-300 text-center space-y-3">
+                  <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl mx-auto flex items-center justify-center">
+                    <Truck size={22} />
+                  </div>
+                  <h3 className="text-sm font-extrabold text-slate-800">Nenhuma O.S. agendada no momento</h3>
+                  <p className="text-xs text-slate-500 max-w-sm mx-auto leading-relaxed">
+                    Você pode iniciar uma Ordem de Serviço em campo a qualquer momento tocando em <strong>"+ Nova O.S. em Campo"</strong> acima.
+                  </p>
+                </div>
+              ) : (
+                <div className="relative pl-2 space-y-4">
+                  <div className="absolute left-[17px] top-5 bottom-6 w-0.5 bg-slate-200"></div>
 
-                {mockRoute.map((stop) => {
-                  const isDone = stop.status === 'done' || completedDestinations.includes(stop.id);
-                  const isStarted = !isDone && startedDestinations.includes(stop.id);
+                  {ordersList.map((order) => {
+                    const isDone = order.status === 'Concluída';
+                    const isStarted = order.status === 'Em Andamento';
 
-                  return (
-                    <div key={stop.id} className="relative z-10 flex items-start gap-3">
-                      <div className={`mt-4 w-4 h-4 rounded-full border-[3px] border-white shadow-sm shrink-0 z-10 ${isDone || isStarted ? 'bg-emerald-500' : 'bg-blue-500'}`}></div>
+                    return (
+                      <div key={order.id} className="relative z-10 flex items-start gap-3">
+                        <div className={`mt-4 w-4 h-4 rounded-full border-[3px] border-white shadow-sm shrink-0 z-10 ${isDone ? 'bg-emerald-500' : isStarted ? 'bg-amber-500' : 'bg-blue-500'}`}></div>
 
-                      <div className={`flex-1 p-4 rounded-2xl border transition-all ${
-                        isStarted
-                          ? 'bg-blue-50/80 border-blue-200 shadow-sm'
-                          : isDone
-                          ? 'bg-slate-100 border-slate-200/70'
-                          : 'bg-white border-slate-200 shadow-sm'
-                      }`}>
-                        <div className="flex items-center justify-between gap-2 mb-1.5">
-                          <span className="inline-flex items-center gap-1 text-xs font-extrabold text-slate-500">
-                            <Clock size={12} className="text-blue-600" />
-                            {stop.time}
-                          </span>
-                          <span className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full ${
-                            isDone
-                              ? 'bg-emerald-100 text-emerald-700'
-                              : isStarted
-                              ? 'bg-blue-100 text-blue-700'
-                              : 'bg-amber-50 text-amber-700 border border-amber-200'
-                          }`}>
-                            {isDone ? 'Concluído' : isStarted ? 'Em Atendimento' : stop.type || 'Programado'}
-                          </span>
-                        </div>
-
-                        <h3 className="font-extrabold text-slate-900 text-sm sm:text-base leading-snug">
-                          {stop.location}
-                        </h3>
-                        {stop.type && (
-                          <p className="text-[11px] font-bold text-slate-400 mt-0.5 uppercase tracking-wider">
-                            Código: {stop.type}
-                          </p>
-                        )}
-                        
-                        {!isDone && !isStarted && (
-                          <button 
-                            onClick={() => handleStartInspection(stop.id)}
-                            disabled={isStarting}
-                            className="mt-3.5 w-full bg-blue-600 text-white font-bold text-xs sm:text-sm py-3 rounded-xl shadow-[0_4px_12px_rgba(37,99,235,0.3)] hover:bg-blue-700 active:scale-[0.99] transition-all flex justify-center items-center cursor-pointer"
-                          >
-                            {isStarting ? (
-                              <Clock size={17} className="animate-spin" />
-                            ) : (
-                              <>
-                                <Navigation size={15} className="mr-2" /> Iniciar Inspeção
-                              </>
-                            )}
-                          </button>
-                        )}
-
-                        {isStarted && (
-                          <div className="mt-3.5 space-y-2">
-                            <div className="flex items-center text-emerald-700 bg-emerald-100 px-3 py-2 rounded-xl text-[11px] font-bold">
-                              <CheckCircle size={14} className="mr-2 shrink-0" />
-                              O.S. Gerada • Atendimento em andamento
-                            </div>
-                            <button 
-                              onClick={() => handleOpenOsForm(stop.id)}
-                              className="w-full bg-white border-2 border-blue-600 text-blue-700 font-bold text-xs sm:text-sm py-2.5 rounded-xl hover:bg-blue-50 transition-colors flex justify-center items-center cursor-pointer"
-                            >
-                              <FileText size={15} className="mr-2" />
-                              Preencher Formulário da O.S.
-                            </button>
-                          </div>
-                        )}
-
-                        {isDone && stop.id !== 1 && (
-                          <div className="mt-3 pt-2.5 border-t border-slate-200 flex items-center justify-between gap-2">
-                            <span className="text-[11px] font-bold text-emerald-700 flex items-center">
-                              <CheckCircle size={13} className="mr-1.5" /> O.S. Assinada e Enviada
+                        <div className={`flex-1 p-4 rounded-2xl border transition-all ${
+                          isStarted
+                            ? 'bg-amber-50/60 border-amber-200 shadow-sm'
+                            : isDone
+                            ? 'bg-slate-100 border-slate-200/70'
+                            : 'bg-white border-slate-200 shadow-sm'
+                        }`}>
+                          <div className="flex items-center justify-between gap-2 mb-1.5">
+                            <span className="inline-flex items-center gap-1 text-xs font-extrabold text-slate-500">
+                              <Clock size={12} className="text-blue-600" />
+                              {order.date || format(new Date(), 'dd/MM/yyyy')} {order.StartTime ? `• ${order.StartTime}` : ''}
                             </span>
-                            <button
-                              type="button"
-                              onClick={() => setActiveTab('preenchidos')}
-                              className="text-[11px] font-extrabold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-1 rounded-lg cursor-pointer"
-                            >
-                              Ver PDF
-                            </button>
+                            <span className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full ${
+                              isDone
+                                ? 'bg-emerald-100 text-emerald-700'
+                                : isStarted
+                                ? 'bg-amber-100 text-amber-800'
+                                : 'bg-blue-100 text-blue-700'
+                            }`}>
+                              {order.status || 'Agendada'}
+                            </span>
                           </div>
-                        )}
+
+                          <h3 className="font-extrabold text-slate-900 text-sm sm:text-base leading-snug">
+                            {order.client}
+                          </h3>
+                          <p className="text-[11px] font-bold text-slate-500 mt-0.5">
+                            {order.code} • {order.type} {order.location ? `• ${order.location}` : ''}
+                          </p>
+
+                          {!isDone && !isStarted && (
+                            <button 
+                              onClick={() => handleStartInspection(order)}
+                              disabled={isStarting}
+                              className="mt-3.5 w-full bg-blue-600 text-white font-bold text-xs sm:text-sm py-3 rounded-xl shadow-[0_4px_12px_rgba(37,99,235,0.3)] hover:bg-blue-700 active:scale-[0.99] transition-all flex justify-center items-center cursor-pointer"
+                            >
+                              {isStarting ? (
+                                <Clock size={17} className="animate-spin" />
+                              ) : (
+                                <>
+                                  <Navigation size={15} className="mr-2" /> Iniciar Atendimento
+                                </>
+                              )}
+                            </button>
+                          )}
+
+                          {isStarted && (
+                            <div className="mt-3.5 space-y-2">
+                              <div className="flex items-center text-amber-800 bg-amber-100 px-3 py-2 rounded-xl text-[11px] font-bold">
+                                <CheckCircle size={14} className="mr-2 shrink-0 text-amber-600" />
+                                Atendimento em andamento no cliente
+                              </div>
+                              <button 
+                                onClick={() => handleOpenOsForm(order)}
+                                className="w-full bg-white border-2 border-blue-600 text-blue-700 font-bold text-xs sm:text-sm py-2.5 rounded-xl hover:bg-blue-50 transition-colors flex justify-center items-center cursor-pointer"
+                              >
+                                <FileText size={15} className="mr-2" />
+                                Preencher e Concluir O.S.
+                              </button>
+                            </div>
+                          )}
+
+                          {isDone && (
+                            <div className="mt-3 pt-2.5 border-t border-slate-200 flex items-center justify-between gap-2">
+                              <span className="text-[11px] font-bold text-emerald-700 flex items-center">
+                                <CheckCircle size={13} className="mr-1.5" /> O.S. Concluída e Assinada
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setActiveTab('preenchidos')}
+                                className="text-[11px] font-extrabold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-1 rounded-lg cursor-pointer"
+                              >
+                                Ver PDF
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           ) : activeTab === 'formularios' ? (
             /* 4. ABA FORMULÁRIOS COM PASTAS E MODELOS CRIADOS PELO GESTOR */

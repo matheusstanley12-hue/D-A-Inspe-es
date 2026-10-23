@@ -24,4 +24,4 @@ dist-ssr
 *.sw?
 test-*.js
 sync-data.json
-DA-Inspecoes.apk
+*.apk
