@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { 
   MapPin, Navigation, Camera, DollarSign, CheckCircle, Clock, 
   ChevronRight, LogOut, Coffee, FileText, FilePlus, Folder, ArrowLeft, 
-  Paperclip, Video, X, Check, Upload, Download, Eye, Home, Truck, RefreshCw, HelpCircle, Edit3
+  Paperclip, Video, X, Check, Upload, Download, Eye, Home, Truck, RefreshCw, HelpCircle, Edit3, Wifi
 } from 'react-feather';
 import { format } from 'date-fns';
 import { generateCorporateFormResponsePDF } from './utils/pdfHeader';
@@ -17,7 +17,9 @@ import {
   getClients, CLIENTS_CHANGE_EVENT,
   getServiceOrders, upsertServiceOrder, ORDERS_CHANGE_EVENT,
   findSystemUserByEmail,
-  syncFromServer
+  syncFromServer,
+  getSyncServerUrl,
+  setSyncServerUrl
 } from './stores/formulariosStore';
 
 let inspectorIdCounter = 0;
@@ -352,6 +354,9 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
   const [activeFormId, setActiveFormId] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [showServerModal, setShowServerModal] = useState(false);
+  const [serverUrlInput, setServerUrlInput] = useState<string>(() => getSyncServerUrl());
+  const [isTestingServer, setIsTestingServer] = useState(false);
 
   // Clientes e Ordens de Serviço reais sincronizadas com o Gestor
   const [clientsList, setClientsList] = useState<SystemClient[]>(() => getClients());
@@ -967,6 +972,17 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
                 title="Instruções de Uso do Aplicativo"
               >
                 <HelpCircle size={16} />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setServerUrlInput(getSyncServerUrl());
+                  setShowServerModal(true);
+                }}
+                className="w-9 h-9 bg-white/15 hover:bg-white/25 text-white rounded-xl transition-colors flex items-center justify-center cursor-pointer"
+                title="Conexão com a Central (IP/Servidor)"
+              >
+                <Wifi size={15} />
               </button>
               <button 
                 onClick={handleManualSync} 
@@ -2672,6 +2688,107 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
                     className="w-full py-2 text-xs font-bold text-slate-500 hover:text-slate-800 text-center cursor-pointer"
                   >
                     Voltar e Revisar Formulário
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL DE CONFIGURAÇÃO DE IP / SERVIDOR DA CENTRAL */}
+        {showServerModal && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-[fadeIn_0.2s_ease-out]">
+            <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden border border-slate-200 flex flex-col">
+              <div className="bg-[#0a2e63] text-white p-4 flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center shrink-0">
+                    <Wifi size={18} />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-black leading-tight">
+                      Conexão com a Central D&A
+                    </h3>
+                    <p className="text-[11px] text-blue-200">
+                      Sincronização em tempo real (Wi-Fi / Nuvem)
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowServerModal(false)}
+                  className="p-1.5 rounded-xl bg-white/15 hover:bg-white/25 text-white cursor-pointer"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="p-4 space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Endereço IP ou URL da Central:
+                  </label>
+                  <input
+                    type="text"
+                    value={serverUrlInput}
+                    onChange={e => setServerUrlInput(e.target.value)}
+                    placeholder="Ex: http://10.10.131.136:5173"
+                    className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <p className="text-[10px] text-slate-500 mt-1">
+                    IP detectado do computador: <code className="bg-slate-100 px-1 py-0.5 rounded text-blue-700 font-bold">http://10.10.131.136:5173</code>
+                  </p>
+                </div>
+
+                <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-900 space-y-1">
+                  <p className="font-bold flex items-center gap-1">
+                    <span>💡</span> Como funciona a sincronização:
+                  </p>
+                  <p className="text-[11px] text-blue-800 leading-relaxed">
+                    1. Certifique-se de que o celular e o computador estejam no mesmo Wi-Fi.<br />
+                    2. O sistema no computador deve estar aberto.<br />
+                    3. Fotos com compressão inteligente, laudos, O.S. e assinaturas sobem automaticamente para a central.
+                  </p>
+                </div>
+
+                <div className="flex flex-col gap-2 pt-1">
+                  <button
+                    type="button"
+                    disabled={isTestingServer}
+                    onClick={async () => {
+                      setIsTestingServer(true);
+                      setSyncServerUrl(serverUrlInput);
+                      const ok = await syncFromServer();
+                      setIsTestingServer(false);
+                      if (ok) {
+                        toast.success('Conectado à Central com sucesso!');
+                        setShowServerModal(false);
+                      } else {
+                        toast.error('Não foi possível conectar a este endereço. Verifique o IP e se o computador está com o sistema aberto.');
+                      }
+                    }}
+                    className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-md cursor-pointer transition-all"
+                  >
+                    <RefreshCw size={14} className={isTestingServer ? 'animate-spin' : ''} />
+                    <span>{isTestingServer ? 'Testando Conexão...' : 'Salvar e Testar Conexão Agora'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const defaultIp = 'http://10.10.131.136:5173';
+                      setServerUrlInput(defaultIp);
+                      setSyncServerUrl(defaultIp);
+                      const ok = await syncFromServer();
+                      if (ok) {
+                        toast.success('IP restaurado e conectado com sucesso!');
+                        setShowServerModal(false);
+                      } else {
+                        toast.success('Endereço restaurado para o IP padrão (10.10.131.136)!');
+                      }
+                    }}
+                    className="w-full py-2 text-xs font-bold text-slate-500 hover:text-slate-800 text-center cursor-pointer"
+                  >
+                    Restaurar IP Padrão da Central
                   </button>
                 </div>
               </div>

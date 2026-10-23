@@ -614,7 +614,7 @@ const DEFAULT_SERVER_URLS = [
 ].filter(Boolean) as string[];
 
 export function getSyncServerUrl(): string {
-  return localStorage.getItem('da_sync_server_url') || 'http://10.10.131.94:5173';
+  return localStorage.getItem('da_sync_server_url') || 'http://10.10.131.136:5173';
 }
 
 export function setSyncServerUrl(url: string): void {
