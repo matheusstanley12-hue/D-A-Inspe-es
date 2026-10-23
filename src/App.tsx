@@ -77,25 +77,11 @@ function App() {
     // em outro computador/navegador (ou se o Gestor resetou a senha), este dispositivo receba o estado atualizado!
     await syncFromServer();
 
-    const registeredUser = findSystemUserByEmail(cleanEmail);
+    let registeredUser = findSystemUserByEmail(cleanEmail);
 
     if (registeredUser) {
       if (registeredUser.status === 'inativo') {
         setLoginError('Este usuário está inativo. Entre em contato com o Gestor.');
-        return;
-      }
-
-      // Validação ESTRITA da senha cadastrada
-      const expectedPassword = registeredUser.mustChangePassword
-        ? DEFAULT_INITIAL_PASSWORD
-        : registeredUser.password;
-
-      if (cleanPass !== expectedPassword) {
-        setLoginError(
-          registeredUser.mustChangePassword
-            ? `Senha incorreta. Para seu 1º acesso utilize a senha padrão: ${DEFAULT_INITIAL_PASSWORD}`
-            : 'Senha incorreta. Verifique sua senha e tente novamente.'
-        );
         return;
       }
 
@@ -106,8 +92,66 @@ function App() {
           ? 'cliente'
           : 'gestor';
 
-      // Se o usuário estiver com troca obrigatória no 1º acesso ativa, exige criar a nova senha lá mesmo
+      // Validação da senha cadastrada localmente/sincronizada
+      const expectedPassword = registeredUser.mustChangePassword
+        ? DEFAULT_INITIAL_PASSWORD
+        : registeredUser.password;
+
+      if (cleanPass !== expectedPassword) {
+        // Caso o usuário tenha trocado a senha em outro computador em outra rede (via Supabase),
+        // verificamos no Supabase se a nova senha pessoal digitada é válida!
+        try {
+          const { data, error } = await supabase.auth.signInWithPassword({
+            email: cleanEmail,
+            password: cleanPass,
+          });
+          if (!error && data?.user && cleanPass !== DEFAULT_INITIAL_PASSWORD) {
+            // Senha pessoal confirmada na nuvem! Atualiza localmente para nunca mais pedir troca de 1º acesso neste computador
+            const syncedUser = updateUserPassword(cleanEmail, cleanPass);
+            setUserRole(mappedRole);
+            setUserEmail(registeredUser.email);
+            setIsAuthenticated(true);
+            setLoginError('');
+            toast.success(`Bem-vindo(a), ${syncedUser?.name || registeredUser.name}! Acesso liberado.`);
+            return;
+          }
+        } catch {
+          // ignore se offline
+        }
+
+        setLoginError(
+          registeredUser.mustChangePassword
+            ? `Senha incorreta. Para seu 1º acesso utilize a senha padrão: ${DEFAULT_INITIAL_PASSWORD}`
+            : 'Senha incorreta. Verifique sua senha e tente novamente.'
+        );
+        return;
+      }
+
+      // Se neste computador o registro ainda for o padrão inicial (updatedAt === 0 e mustChangePassword === true),
+      // consultamos o Supabase para checar se o usuário já trocou a senha em outro computador
+      if (registeredUser.mustChangePassword && (!registeredUser.updatedAt || registeredUser.updatedAt === 0)) {
+        try {
+          const { data } = await supabase.auth.signInWithPassword({
+            email: cleanEmail,
+            password: cleanPass,
+          });
+          if (data?.user && data.user.user_metadata?.must_change_password === false) {
+            // Usuário já havia concluído o 1º acesso em outro computador
+            registeredUser = updateUserPassword(cleanEmail, cleanPass) || registeredUser;
+          }
+        } catch {
+          // ignore se offline
+        }
+      }
+
+      // Se o usuário estiver com troca obrigatória no 1º acesso ativa (primeira vez real ou após reset do Gestor)
       if (registeredUser.mustChangePassword) {
+        // Inicia sessão no Supabase em background (se existir) para permitir atualizar a senha na nuvem
+        supabase.auth.signInWithPassword({
+          email: cleanEmail,
+          password: DEFAULT_INITIAL_PASSWORD,
+        }).catch(() => {});
+
         setPendingFirstAccess({
           email: registeredUser.email,
           name: registeredUser.name,
