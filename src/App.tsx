@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { Capacitor } from '@capacitor/core';
 import Login, { type PendingFirstAccessUser } from './Login';
 import AdminView from './AdminView';
 import InspectorMobileApp from './InspectorMobileApp';
@@ -15,29 +14,13 @@ import {
   MASTER_DEV_PASSWORD,
 } from './stores/formulariosStore';
 
-function checkIsMobileApp(): boolean {
-  if (typeof window === 'undefined') return false;
-  return (
-    Capacitor.isNativePlatform() ||
-    window.innerWidth < 768 ||
-    /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
-  );
-}
-
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [userRole, setUserRole] = useState<'gestor' | 'inspetor' | 'cliente' | null>(null);
   const [userEmail, setUserEmail] = useState('');
   const [loginError, setLoginError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [isMobileApp, setIsMobileApp] = useState(checkIsMobileApp);
   const [pendingFirstAccess, setPendingFirstAccess] = useState<PendingFirstAccessUser | null>(null);
-
-  useEffect(() => {
-    const handleResize = () => setIsMobileApp(checkIsMobileApp());
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
 
   useEffect(() => {
     // Check if there is an active Supabase session
@@ -317,7 +300,7 @@ function App() {
     <>
       <Toaster position="top-right" toastOptions={{ style: { fontWeight: 'bold' } }} />
       {isAuthenticated ? (
-        isMobileApp || userRole === 'inspetor' ? (
+        userRole === 'inspetor' ? (
           <InspectorMobileApp onLogout={handleLogout} userEmail={userEmail} />
         ) : userRole === 'cliente' ? (
           <ClientPortal onLogout={handleLogout} userEmail={userEmail} />
@@ -329,7 +312,6 @@ function App() {
           onLogin={handleLogin}
           error={loginError}
           onSelectRole={handleSelectRole}
-          isMobileApp={isMobileApp}
           pendingFirstAccess={pendingFirstAccess}
           onConfirmNewPassword={handleConfirmNewPassword}
           onCancelFirstAccess={() => setPendingFirstAccess(null)}
