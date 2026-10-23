@@ -66,7 +66,7 @@ let DefaultIcon = L.icon({
 L.Marker.prototype.options.icon = DefaultIcon;
 
 function buildInspectorsList(): Inspector[] {
-  const users = getSystemUsers().filter(u => u.role === 'inspetor' || u.role === 'gestor');
+  const users = getSystemUsers().filter(u => u.role === 'inspetor');
   const expenses = getExpenses();
   const orders = getServiceOrders();
 
@@ -151,7 +151,7 @@ export default function InspectorManager() {
   // Form da Demanda (Nova)
   const [demandForm, setDemandForm] = useState(() => {
     const firstClient = getClients()[0]?.companyName || '';
-    const firstInsp = getSystemUsers().find(u => u.role === 'inspetor')?.name || 'Matheus Stanley';
+    const firstInsp = getSystemUsers().find(u => u.role === 'inspetor')?.name || '';
     return {
       inspector: firstInsp,
       client: firstClient,
@@ -817,14 +817,19 @@ export default function InspectorManager() {
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-1">Responsável (Inspetor)</label>
                 <select 
-                  className="w-full border border-gray-300 rounded p-2 focus:ring-1 focus:ring-blue-500"
+                  className="w-full border border-gray-300 rounded p-2 focus:ring-1 focus:ring-blue-500 bg-white"
                   value={demandForm.inspector}
                   onChange={(e) => setDemandForm({...demandForm, inspector: e.target.value})}
                 >
-                  <option>João Silva</option>
-                  <option>Matheus Stanley</option>
-                  <option>Ana Costa</option>
-                  <option>Todos</option>
+                  <option value="" disabled>Selecione um inspetor...</option>
+                  {inspectors.length > 0 ? (
+                    inspectors.map(insp => (
+                      <option key={insp.id} value={insp.name}>{insp.name}</option>
+                    ))
+                  ) : (
+                    <option value="" disabled>Nenhum inspetor cadastrado em Usuários</option>
+                  )}
+                  {inspectors.length > 0 && <option value="Todos">Todos os Inspetores</option>}
                 </select>
               </div>
 

@@ -134,12 +134,12 @@ export default function OperationCalendarView() {
   const [selectedEvent, setSelectedEvent] = useState<any>(null);
 
   const [orders, setOrders] = useState<ServiceOrder[]>(() => getServiceOrders());
-  const [users, setUsers] = useState<SystemUser[]>(() => getSystemUsers().filter(u => u.role === 'inspetor' || u.role === 'gestor'));
+  const [users, setUsers] = useState<SystemUser[]>(() => getSystemUsers().filter(u => u.role === 'inspetor'));
   const [responses, setResponses] = useState<FormResponse[]>(() => getFormResponses());
 
   useEffect(() => {
     const updateOrd = () => setOrders(getServiceOrders());
-    const updateUsers = () => setUsers(getSystemUsers().filter(u => u.role === 'inspetor' || u.role === 'gestor'));
+    const updateUsers = () => setUsers(getSystemUsers().filter(u => u.role === 'inspetor'));
     const updateResp = () => setResponses(getFormResponses());
 
     window.addEventListener(ORDERS_CHANGE_EVENT, updateOrd);

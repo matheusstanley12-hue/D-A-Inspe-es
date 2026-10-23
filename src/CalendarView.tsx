@@ -85,7 +85,7 @@ export default function CalendarView({ onNavigate }: { onNavigate?: (menu: strin
     pendentes: i === Math.min(5, curMonth) ? (totalEmAndamento + totalAgendadas) : 0,
   }));
 
-  const inspectorsList = users.filter(u => u.role === 'inspetor' || u.role === 'gestor');
+  const inspectorsList = users.filter(u => u.role === 'inspetor');
 
   return (
     <div className="h-full flex flex-col w-full max-w-[1600px] mx-auto pt-2 pb-8 animate-[fadeIn_0.3s_ease-out]">
