@@ -1,18 +1,20 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { 
   MapPin, Navigation, Camera, DollarSign, CheckCircle, Clock, 
   ChevronRight, LogOut, Coffee, FileText, FilePlus, Folder, ArrowLeft, 
-  Paperclip, Video, X, Check, Upload, Download, Eye, Home, Truck, RefreshCw, HelpCircle
+  Paperclip, Video, X, Check, Upload, Download, Eye, Home, Truck, RefreshCw, HelpCircle, Edit3
 } from 'react-feather';
 import { format } from 'date-fns';
 import { generateCorporateFormResponsePDF } from './utils/pdfHeader';
 import toast from 'react-hot-toast';
 import logoUrl from './assets/logo.jpg';
+import logoTightUrl from './assets/logo-tight.png';
 import type { InspectionForm, FormResponse, InspectorExpense, ExpenseCategory } from './stores/formulariosStore';
 import { 
   getForms, saveFormResponse, FORMS_CHANGE_EVENT,
   getFormResponses, RESPONSES_CHANGE_EVENT,
   getExpenses, saveExpense, EXPENSES_CHANGE_EVENT,
+  findSystemUserByEmail,
   syncFromServer
 } from './stores/formulariosStore';
 
@@ -24,6 +26,8 @@ function createInspectorId(prefix: string): string {
 
 function formatUserName(email?: string): string {
   if (!email) return 'Inspetor D&A';
+  const registered = findSystemUserByEmail(email);
+  if (registered?.name) return registered.name.replace(/\s*\(Inspetor\)\s*/i, '');
   const lower = email.toLowerCase().trim();
   if (lower.includes('matheus')) return 'Matheus Stanley';
   if (lower === 'testeinspetor@gmail.com') return 'João Silva';
@@ -31,13 +35,339 @@ function formatUserName(email?: string): string {
   return local.replace(/\b\w/g, c => c.toUpperCase()) || 'Inspetor D&A';
 }
 
+function generateRubricDataUrl(inspectorName: string): string {
+  const canvas = document.createElement('canvas');
+  canvas.width = 520;
+  canvas.height = 170;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return '';
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Traço fluido simulando rubrica manuscrita azul-escura de engenheiro/inspetor
+  ctx.strokeStyle = '#0a2e63';
+  ctx.lineWidth = 2.6;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  ctx.beginPath();
+  ctx.moveTo(55, 118);
+  ctx.bezierCurveTo(95, 45, 145, 135, 195, 78);
+  ctx.bezierCurveTo(235, 42, 275, 125, 335, 88);
+  ctx.bezierCurveTo(375, 68, 415, 112, 465, 92);
+  ctx.stroke();
+
+  // Sublinhado de rubrica
+  ctx.beginPath();
+  ctx.lineWidth = 1.8;
+  ctx.moveTo(75, 132);
+  ctx.quadraticCurveTo(260, 114, 445, 126);
+  ctx.stroke();
+
+  // Nome em estilo manuscrito técnico
+  ctx.fillStyle = '#0a2e63';
+  ctx.font = 'italic bold 26px Georgia, "Times New Roman", serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(inspectorName, canvas.width / 2, 74);
+
+  ctx.fillStyle = '#475569';
+  ctx.font = 'bold 10px Arial, sans-serif';
+  ctx.fillText(`ASSINADO DIGITALMENTE • ${format(new Date(), 'dd/MM/yyyy HH:mm')}`, canvas.width / 2, 154);
+
+  return canvas.toDataURL('image/png');
+}
+
+function SignaturePadBox({
+  inspectorName,
+  signatureDataUrl,
+  onChange,
+}: {
+  inspectorName: string;
+  signatureDataUrl: string;
+  onChange: (dataUrl: string) => void;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const isDrawingRef = useRef(false);
+  const lastPosRef = useRef<{ x: number; y: number } | null>(null);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+
+  // Sincroniza imagem quando limpa ou quando carrega rubrica
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    if (!signatureDataUrl) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+  }, [signatureDataUrl]);
+
+  // Listeners nativos com { passive: false } para garantir que o Android WebView NÃO role a tela ao assinar com o dedo
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const getPoint = (clientX: number, clientY: number) => {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / Math.max(1, rect.width);
+      const scaleY = canvas.height / Math.max(1, rect.height);
+      return {
+        x: (clientX - rect.left) * scaleX,
+        y: (clientY - rect.top) * scaleY,
+      };
+    };
+
+    const drawStrokeStart = (pt: { x: number; y: number }) => {
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      isDrawingRef.current = true;
+      lastPosRef.current = pt;
+      ctx.strokeStyle = '#0a2e63';
+      ctx.lineWidth = 3.5;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(pt.x, pt.y);
+      ctx.lineTo(pt.x + 0.5, pt.y + 0.5);
+      ctx.stroke();
+    };
+
+    const drawStrokeMove = (pt: { x: number; y: number }) => {
+      if (!isDrawingRef.current || !lastPosRef.current) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.strokeStyle = '#0a2e63';
+      ctx.lineWidth = 3.5;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(lastPosRef.current.x, lastPosRef.current.y);
+      ctx.lineTo(pt.x, pt.y);
+      ctx.stroke();
+      lastPosRef.current = pt;
+    };
+
+    const drawStrokeEnd = () => {
+      if (!isDrawingRef.current) return;
+      isDrawingRef.current = false;
+      lastPosRef.current = null;
+      onChangeRef.current(canvas.toDataURL('image/png'));
+    };
+
+    const onTouchStart = (e: TouchEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const touch = e.touches[0] || e.changedTouches[0];
+      if (!touch) return;
+      drawStrokeStart(getPoint(touch.clientX, touch.clientY));
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const touch = e.touches[0] || e.changedTouches[0];
+      if (!touch) return;
+      drawStrokeMove(getPoint(touch.clientX, touch.clientY));
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      drawStrokeEnd();
+    };
+
+    canvas.addEventListener('touchstart', onTouchStart, { passive: false });
+    canvas.addEventListener('touchmove', onTouchMove, { passive: false });
+    canvas.addEventListener('touchend', onTouchEnd, { passive: false });
+    canvas.addEventListener('touchcancel', onTouchEnd, { passive: false });
+
+    return () => {
+      canvas.removeEventListener('touchstart', onTouchStart);
+      canvas.removeEventListener('touchmove', onTouchMove);
+      canvas.removeEventListener('touchend', onTouchEnd);
+      canvas.removeEventListener('touchcancel', onTouchEnd);
+    };
+  }, []);
+
+  const getMouseCoords = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / Math.max(1, rect.width);
+    const scaleY = canvas.height / Math.max(1, rect.height);
+    return {
+      x: (e.clientX - rect.left) * scaleX,
+      y: (e.clientY - rect.top) * scaleY,
+    };
+  };
+
+  const startMouseDrawing = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    isDrawingRef.current = true;
+    const pos = getMouseCoords(e);
+    lastPosRef.current = pos;
+
+    ctx.strokeStyle = '#0a2e63';
+    ctx.lineWidth = 3.5;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(pos.x, pos.y);
+    ctx.lineTo(pos.x + 0.5, pos.y + 0.5);
+    ctx.stroke();
+  };
+
+  const drawMouse = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!isDrawingRef.current) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx || !lastPosRef.current) return;
+
+    const pos = getMouseCoords(e);
+    ctx.strokeStyle = '#0a2e63';
+    ctx.lineWidth = 3.5;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(lastPosRef.current.x, lastPosRef.current.y);
+    ctx.lineTo(pos.x, pos.y);
+    ctx.stroke();
+    lastPosRef.current = pos;
+  };
+
+  const stopMouseDrawing = () => {
+    if (!isDrawingRef.current) return;
+    isDrawingRef.current = false;
+    lastPosRef.current = null;
+    const canvas = canvasRef.current;
+    if (canvas) {
+      onChange(canvas.toDataURL('image/png'));
+    }
+  };
+
+  const handleApplyDigitalRubric = () => {
+    const rubricUrl = generateRubricDataUrl(inspectorName);
+    const canvas = canvasRef.current;
+    if (canvas && rubricUrl) {
+      const ctx = canvas.getContext('2d');
+      const img = new Image();
+      img.onload = () => {
+        if (ctx) {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        }
+      };
+      img.src = rubricUrl;
+    }
+    onChange(rubricUrl);
+    toast.success('Assinatura digital aplicada!');
+  };
+
+  const handleClear = () => {
+    const canvas = canvasRef.current;
+    if (canvas) {
+      const ctx = canvas.getContext('2d');
+      ctx?.clearRect(0, 0, canvas.width, canvas.height);
+    }
+    onChange('');
+  };
+
+  return (
+    <div className="bg-white p-4 rounded-2xl border-2 border-blue-200 shadow-sm space-y-3 select-none">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <label className="text-xs font-extrabold text-slate-900 flex items-center gap-1.5">
+            <Edit3 size={14} className="text-blue-600" />
+            Assinatura Digital do Inspetor <span className="text-red-500">*</span>
+          </label>
+          <p className="text-[11px] text-slate-500 mt-0.5">
+            Assine com o dedo no quadro abaixo ou toque em <strong>Gerar Rubrica Digital</strong>.
+          </p>
+        </div>
+        {signatureDataUrl ? (
+          <span className="text-[10px] font-extrabold bg-emerald-100 text-emerald-700 border border-emerald-200 px-2.5 py-1 rounded-full shrink-0 flex items-center gap-1">
+            <Check size={11} strokeWidth={3} /> Assinado
+          </span>
+        ) : (
+          <span className="text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200 px-2.5 py-1 rounded-full shrink-0">
+            Obrigatório
+          </span>
+        )}
+      </div>
+
+      <div className="relative rounded-xl border-2 border-dashed border-blue-300 bg-slate-50 overflow-hidden touch-none">
+        <canvas
+          ref={canvasRef}
+          width={520}
+          height={180}
+          onMouseDown={startMouseDrawing}
+          onMouseMove={drawMouse}
+          onMouseUp={stopMouseDrawing}
+          onMouseLeave={stopMouseDrawing}
+          style={{ touchAction: 'none' }}
+          className="w-full h-40 cursor-crosshair block touch-none"
+        />
+        {!signatureDataUrl && (
+          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-slate-400">
+            <Edit3 size={22} className="mb-1 text-blue-400 opacity-75" />
+            <span className="text-xs font-extrabold text-slate-500">Assine aqui com o dedo na tela</span>
+            <span className="text-[10px] text-slate-400 mt-0.5">Inspetor: {inspectorName}</span>
+          </div>
+        )}
+        <div className="pointer-events-none absolute bottom-4 left-8 right-8 border-b border-slate-300" />
+      </div>
+
+      <div className="flex items-center justify-between gap-2 pt-1">
+        <button
+          type="button"
+          onClick={handleClear}
+          className="px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors cursor-pointer"
+        >
+          Limpar
+        </button>
+        <button
+          type="button"
+          onClick={handleApplyDigitalRubric}
+          className="flex-1 py-2.5 px-3 rounded-xl bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 text-xs font-extrabold transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+        >
+          <Edit3 size={13} />
+          Gerar Rubrica Digital ({inspectorName})
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: () => void; userEmail?: string }) {
   const displayUserName = formatUserName(userEmail);
   const [activeTab, setActiveTab] = useState<'rota' | 'gastos' | 'formularios' | 'preenchidos'>('rota');
   const [activeFormId, setActiveFormId] = useState<number | null>(null);
   const [isStarting, setIsStarting] = useState(false);
-  const [startedDestinations, setStartedDestinations] = useState<number[]>([]);
+  const [startedDestinations, setStartedDestinations] = useState<number[]>([2]);
+  const [completedDestinations, setCompletedDestinations] = useState<number[]>([1]);
   const [isSyncing, setIsSyncing] = useState(false);
+
+  // Assinatura do Inspetor (compartilhada entre formulário dinâmico e O.S. da rota)
+  const [inspectorSignature, setInspectorSignature] = useState<string>('');
+  const [signatureModalTarget, setSignatureModalTarget] = useState<'dynamic' | 'os' | null>(null);
+
+  // Campos controlados do Formulário de O.S. da Rota (aba Inspeções)
+  const [osClientKey, setOsClientKey] = useState<string>('mercado');
+  const [osClientName, setOsClientName] = useState<string>('Mercado Central, BH');
+  const [osCpfCnpj, setOsCpfCnpj] = useState<string>('55.666.777/0001-22');
+  const [osAddress, setOsAddress] = useState<string>('Av. Augusto de Lima, 744 - Centro, BH');
+  const [osType, setOsType] = useState<string>('Diligenciamento');
+  const [osOrderNumber, setOsOrderNumber] = useState<string>('OS-2026-0142');
+  const [osStatusResult, setOsStatusResult] = useState<string>('Conforme / Aprovado');
+  const [osNotes, setOsNotes] = useState<string>('');
+  const [osPhotos, setOsPhotos] = useState<{ type: 'photo' | 'video' | 'file'; name: string; url: string }[]>([]);
 
   // Onboarding / Instruções de Primeiro Acesso do Inspetor
   const ONBOARDING_STORAGE_KEY = 'da_inspector_onboarding_v1';
@@ -136,9 +466,141 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
     setIsStarting(true);
     setTimeout(() => {
       setIsStarting(false);
-      setStartedDestinations([...startedDestinations, id]);
+      setStartedDestinations(prev => prev.includes(id) ? prev : [...prev, id]);
       toast.success('Ordem de Serviço gerada automaticamente e enviada para o Gestor!');
-    }, 1500);
+    }, 600);
+  };
+
+  // Abrir formulário de O.S. da Rota já preenchido com os dados da parada selecionada
+  const handleOpenOsForm = (stopId: number) => {
+    setActiveFormId(stopId);
+    setInspectorSignature('');
+    setOsPhotos([]);
+    if (stopId === 3) {
+      setOsClientKey('abc');
+      setOsClientName('Fábrica ABC, Contagem');
+      setOsCpfCnpj('98.765.432/0001-10');
+      setOsAddress('Av. Industrial, 500 - Contagem, MG');
+      setOsType('Solda');
+      setOsOrderNumber(`OS-2026-0${stopId}08`);
+      setOsStatusResult('Conforme / Aprovado');
+      setOsNotes('Inspeção visual e dimensional de solda realizada conforme procedimento técnico D&A.');
+    } else {
+      setOsClientKey('mercado');
+      setOsClientName('Mercado Central, BH');
+      setOsCpfCnpj('55.666.777/0001-22');
+      setOsAddress('Av. Augusto de Lima, 744 - Centro, BH');
+      setOsType('Diligenciamento');
+      setOsOrderNumber(`OS-2026-0${stopId}04`);
+      setOsStatusResult('Conforme / Aprovado');
+      setOsNotes('Diligenciamento técnico em campo concluído dentro do cronograma previsto.');
+    }
+  };
+
+  const handleSelectOsClient = (val: string) => {
+    setOsClientKey(val);
+    if (val === 'coracorthe') {
+      setOsClientName('Coracorthe Hardox Wearparts');
+      setOsCpfCnpj('12.345.678/0001-90');
+      setOsAddress('Coracorthe Hardox Wearparts, BH');
+    } else if (val === 'abc') {
+      setOsClientName('Fábrica ABC, Contagem');
+      setOsCpfCnpj('98.765.432/0001-10');
+      setOsAddress('Av. Industrial, 500 - Contagem, MG');
+    } else if (val === 'mercado') {
+      setOsClientName('Mercado Central, BH');
+      setOsCpfCnpj('55.666.777/0001-22');
+      setOsAddress('Av. Augusto de Lima, 744 - Centro, BH');
+    }
+  };
+
+  const handleOsPhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    Array.from(files).forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          const maxW = 750;
+          const scale = img.width > maxW ? maxW / img.width : 1;
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.round(img.width * scale));
+          canvas.height = Math.max(1, Math.round(img.height * scale));
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            const compressed = canvas.toDataURL('image/jpeg', 0.78);
+            setOsPhotos(prev => [...prev, { type: 'photo', name: file.name, url: compressed }]);
+          }
+        };
+        img.src = reader.result as string;
+      };
+      reader.readAsDataURL(file);
+    });
+    toast.success('Foto adicionada à Ordem de Serviço!');
+    e.target.value = '';
+  };
+
+  // Finalizar e Enviar o Formulário de O.S. da Rota (aba Inspeções)
+  const handleSubmitOsForm = () => {
+    if (!osClientName.trim()) {
+      toast.error('Selecione o Cliente antes de finalizar a O.S.');
+      return;
+    }
+
+    if (!inspectorSignature) {
+      setSignatureModalTarget('os');
+      toast('Realize sua assinatura digital na tela para concluir a O.S.!', { icon: '✍️' });
+      return;
+    }
+
+    const osFieldsSnapshot = [
+      { id: 'os_numero', type: 'text' as const, label: 'Nº da Ordem de Serviço (O.S.)', required: true, options: [] },
+      { id: 'os_cliente', type: 'text' as const, label: 'Cliente / Unidade Inspecionada', required: true, options: [] },
+      { id: 'os_cnpj', type: 'text' as const, label: 'CPF / CNPJ do Cliente', required: true, options: [] },
+      { id: 'os_endereco', type: 'text' as const, label: 'Endereço da Inspeção', required: true, options: [] },
+      { id: 'os_tipo', type: 'select' as const, label: 'Modalidade / Tipo de Inspeção', required: true, options: [] },
+      { id: 'os_parecer', type: 'radio' as const, label: 'Parecer Técnico Final', required: true, options: [] },
+      { id: 'os_observacoes', type: 'textarea' as const, label: 'Observações e Constatações Técnicas', required: false, options: [] },
+      { id: 'os_fotos', type: 'photo' as const, label: 'Registro Fotográfico da O.S.', required: false, options: [] },
+    ];
+
+    const newResponse: FormResponse = {
+      id: createInspectorId('resp_os'),
+      formId: `os_rota_${activeFormId || 1}`,
+      formName: `Ordem de Serviço (${osType}) - ${osClientName}`,
+      category: osType || 'Diligenciamento',
+      inspectorName: displayUserName,
+      inspectorSignature: inspectorSignature,
+      submittedAt: new Date().toISOString(),
+      answers: {
+        os_numero: osOrderNumber || 'OS-2026-0142',
+        os_cliente: osClientName,
+        os_cnpj: osCpfCnpj,
+        os_endereco: osAddress,
+        os_tipo: osType,
+        os_parecer: osStatusResult,
+        os_observacoes: osNotes.trim() || 'Inspeção executada em conformidade com os requisitos técnicos da D&A Inspeções.',
+      },
+      fieldsSnapshot: osFieldsSnapshot,
+      attachments: osPhotos.map(p => ({ fieldId: 'os_fotos', ...p })),
+    };
+
+    saveFormResponse(newResponse);
+    setFilledResponses(getFormResponses());
+
+    if (activeFormId !== null) {
+      setCompletedDestinations(prev => prev.includes(activeFormId) ? prev : [...prev, activeFormId]);
+      setStartedDestinations(prev => prev.filter(id => id !== activeFormId));
+    }
+
+    setSignatureModalTarget(null);
+    setActiveFormId(null);
+    setActiveTab('preenchidos');
+    toast.success('O.S. assinada digitalmente, enviada ao sistema e pronta para baixar em PDF!');
   };
 
   const handleReceiptPhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -195,9 +657,10 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
     setActiveFillingForm(form);
     setFormAnswers({});
     setFormAttachments({});
+    setInspectorSignature('');
   };
 
-  // Upload real de arquivos / fotos / vídeos (convertendo fotos para Base64 para persistir e sair no PDF)
+  // Upload real de arquivos / fotos / vídeos (convertendo fotos para Base64 comprimido para persistir e sair no PDF)
   const handleFileSelect = (fieldId: string, type: 'photo' | 'video' | 'file', e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -208,7 +671,7 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
         reader.onload = () => {
           const img = new Image();
           img.onload = () => {
-            const maxW = 1000;
+            const maxW = 750;
             const scale = img.width > maxW ? maxW / img.width : 1;
             const canvas = document.createElement('canvas');
             canvas.width = Math.max(1, Math.round(img.width * scale));
@@ -218,7 +681,7 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
               ctx.fillStyle = '#ffffff';
               ctx.fillRect(0, 0, canvas.width, canvas.height);
               ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-              const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+              const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.78);
               setFormAttachments(prev => ({
                 ...prev,
                 [fieldId]: [...(prev[fieldId] || []), { type: 'photo', name: file.name, url: compressedDataUrl }]
@@ -237,6 +700,106 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
       }
     });
     toast.success(`${type === 'photo' ? 'Foto' : type === 'video' ? 'Vídeo' : 'Arquivo'} anexado!`);
+    e.target.value = '';
+  };
+
+  // Captura pela Lente D&A (botão central de câmera com carimbo técnico D&A)
+  const handleLenteCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const maxW = 800;
+        const scale = img.width > maxW ? maxW / img.width : 1;
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(img.width * scale));
+        canvas.height = Math.max(1, Math.round(img.height * scale));
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+        // Carimbo Técnico D&A na parte inferior da foto
+        const barH = Math.max(44, Math.round(canvas.height * 0.1));
+        ctx.fillStyle = 'rgba(7, 29, 61, 0.82)';
+        ctx.fillRect(0, canvas.height - barH, canvas.width, barH);
+        ctx.fillStyle = '#38bdf8';
+        ctx.fillRect(0, canvas.height - barH, canvas.width, 3);
+
+        const fontSizeTitle = Math.max(11, Math.round(barH * 0.32));
+        const fontSizeSub = Math.max(10, Math.round(barH * 0.27));
+        ctx.fillStyle = '#ffffff';
+        ctx.font = `bold ${fontSizeTitle}px Arial, sans-serif`;
+        ctx.fillText(`D&A INSPEÇÕES • LENTE D&A (GPS VERIFICADO)`, 12, canvas.height - barH + fontSizeTitle + 6);
+
+        ctx.fillStyle = '#bae6fd';
+        ctx.font = `${fontSizeSub}px Arial, sans-serif`;
+        ctx.fillText(
+          `Data: ${format(new Date(), 'dd/MM/yyyy HH:mm:ss')} • Inspetor: ${displayUserName}`,
+          12,
+          canvas.height - 8
+        );
+
+        const stampedDataUrl = canvas.toDataURL('image/jpeg', 0.8);
+        const photoName = `Lente_DA_${format(new Date(), 'ddMMyyyy_HHmmss')}.jpg`;
+
+        // Se estiver preenchendo um formulário dinâmico, anexa automaticamente ao primeiro campo de foto
+        if (activeFillingForm) {
+          const photoField = activeFillingForm.fields.find(f => f.type === 'photo') || activeFillingForm.fields[0];
+          if (photoField) {
+            setFormAttachments(prev => ({
+              ...prev,
+              [photoField.id]: [...(prev[photoField.id] || []), { type: 'photo', name: photoName, url: stampedDataUrl }]
+            }));
+            toast.success('Foto com carimbo D&A anexada ao formulário atual!');
+            return;
+          }
+        }
+
+        // Se estiver preenchendo a O.S. da rota, anexa às fotos da O.S.
+        if (activeFormId !== null) {
+          setOsPhotos(prev => [...prev, { type: 'photo', name: photoName, url: stampedDataUrl }]);
+          toast.success('Foto com carimbo D&A anexada à Ordem de Serviço!');
+          return;
+        }
+
+        // Caso contrário, gera um Registro Fotográfico Rápido Lente D&A na aba Preenchidos
+        const quickResp: FormResponse = {
+          id: createInspectorId('resp_lente'),
+          formId: 'lente_da_evidencia',
+          formName: `Evidência Fotográfica Lente D&A (${format(new Date(), 'dd/MM HH:mm')})`,
+          category: 'Lente D&A • Campo',
+          inspectorName: displayUserName,
+          inspectorSignature: generateRubricDataUrl(displayUserName),
+          submittedAt: new Date().toISOString(),
+          answers: {
+            local_evidencia: 'Registro Rápido em Campo (GPS Ativo)',
+            horario_captura: format(new Date(), 'dd/MM/yyyy HH:mm:ss'),
+            status_evidencia: 'Conforme / Registrado com Carimbo Oficial D&A',
+          },
+          fieldsSnapshot: [
+            { id: 'local_evidencia', type: 'text', label: 'Origem do Registro', required: true, options: [] },
+            { id: 'horario_captura', type: 'text', label: 'Data e Hora da Captura', required: true, options: [] },
+            { id: 'status_evidencia', type: 'text', label: 'Status da Evidência', required: true, options: [] },
+            { id: 'foto_lente', type: 'photo', label: 'Fotografia Carimbada Lente D&A', required: true, options: [] },
+          ],
+          attachments: [{ fieldId: 'foto_lente', type: 'photo', name: photoName, url: stampedDataUrl }],
+        };
+
+        saveFormResponse(quickResp);
+        setFilledResponses(getFormResponses());
+        setActiveTab('preenchidos');
+        toast.success('Foto carimbada pela Lente D&A e salva em Preenchidos (pronta para PDF)!');
+      };
+      img.src = reader.result as string;
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
   };
 
   // Simulação rápida para teste sem câmera
@@ -268,7 +831,7 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
     });
   };
 
-  // Enviar formulário preenchido
+  // Enviar formulário dinâmico preenchido
   const handleSubmitForm = () => {
     if (!activeFillingForm) return;
 
@@ -278,7 +841,7 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
         if (field.type === 'photo' || field.type === 'video' || field.type === 'file') {
           const files = formAttachments[field.id] || [];
           if (files.length === 0) {
-            toast.error(`O campo "${field.label || 'Anexo'}" é obrigatório.`);
+            toast.error(`Anexe ao menos um arquivo no campo obrigatório "${field.label || 'Anexo'}".`);
             return;
           }
         } else if (field.type === 'checkbox') {
@@ -289,12 +852,19 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
           }
         } else {
           const val = formAnswers[field.id];
-          if (!val || (typeof val === 'string' && !val.trim())) {
+          if (val === undefined || val === null || (typeof val === 'string' && !val.trim())) {
             toast.error(`Preencha o campo obrigatório "${field.label}".`);
             return;
           }
         }
       }
+    }
+
+    // Se o inspetor ainda não assinou, abre o Modal de Assinatura Digital Obrigatória!
+    if (!inspectorSignature) {
+      setSignatureModalTarget('dynamic');
+      toast('Realize sua assinatura digital na tela para finalizar o formulário!', { icon: '✍️' });
+      return;
     }
 
     // Montar todos os anexos
@@ -303,21 +873,26 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
       atts.forEach(a => allAttachments.push({ fieldId: fId, ...a }));
     });
 
-    saveFormResponse({
+    const newResponse: FormResponse = {
       id: createInspectorId('resp'),
       formId: activeFillingForm.id,
       formName: activeFillingForm.name,
       category: activeFillingForm.category || 'Geral',
       inspectorName: displayUserName,
+      inspectorSignature: inspectorSignature,
       submittedAt: new Date().toISOString(),
       answers: formAnswers,
       fieldsSnapshot: activeFillingForm.fields,
       attachments: allAttachments,
-    });
+    };
 
-    setSubmittedFormIds([...submittedFormIds, activeFillingForm.id]);
-    toast.success(`Formulário "${activeFillingForm.name}" enviado e disponível na aba Preenchidos!`);
+    saveFormResponse(newResponse);
+    setFilledResponses(getFormResponses());
+    setSubmittedFormIds(prev => prev.includes(activeFillingForm.id) ? prev : [...prev, activeFillingForm.id]);
+    setSignatureModalTarget(null);
     setActiveFillingForm(null);
+    setActiveTab('preenchidos');
+    toast.success(`Formulário "${activeFillingForm.name}" assinado digitalmente e enviado! Baixe o PDF abaixo.`);
   };
 
   // Pastas (categorias) dos formulários
@@ -332,44 +907,53 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
       <div className="w-full max-w-3xl bg-slate-50 flex flex-col h-screen shadow-lg md:border-x border-slate-200 overflow-hidden relative">
 
         {/* App Header */}
-        <header className="bg-blue-700 text-white px-4 sm:px-8 pt-[max(1.25rem,env(safe-area-inset-top))] pb-5 shadow-md z-10 shrink-0">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="bg-white p-1.5 rounded-xl shadow-sm shrink-0">
-                <img src={logoUrl} alt="D&A Inspeções" className="h-9 w-9 object-contain" />
+        <header className="bg-gradient-to-r from-[#0a2e63] via-[#134796] to-[#1d4ed8] text-white px-3.5 sm:px-6 pt-[max(2.1rem,env(safe-area-inset-top))] pb-3.5 shadow-md z-10 shrink-0">
+          <div className="flex justify-between items-center gap-2">
+            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+              <div className="bg-white p-1.5 rounded-xl shadow-sm shrink-0 flex items-center justify-center w-11 h-11">
+                <img src={logoTightUrl} alt="D&A Inspeções" className="w-full h-full object-contain" />
               </div>
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <p className="text-blue-200 text-[10px] sm:text-xs font-bold uppercase tracking-wider">D&A Inspeções • Campo</p>
-                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/20 text-emerald-200 border border-emerald-400/30">
-                    ● Online
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5 flex-nowrap">
+                  <span className="text-blue-200 text-[10px] font-extrabold uppercase tracking-wider whitespace-nowrap">
+                    D&A Inspeções
+                  </span>
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/20 text-emerald-200 border border-emerald-400/30 whitespace-nowrap shrink-0">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
+                    Online
                   </span>
                 </div>
-                <h1 className="text-lg sm:text-2xl font-extrabold truncate">{displayUserName}</h1>
+                <h1 className="text-base sm:text-xl font-extrabold truncate leading-tight mt-0.5">
+                  {displayUserName}
+                </h1>
               </div>
             </div>
-            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+
+            <div className="flex items-center gap-1.5 shrink-0">
               <button
                 type="button"
                 onClick={() => {
                   setOnboardingStep(0);
                   setShowOnboarding(true);
                 }}
-                className="p-2 bg-blue-800/80 hover:bg-blue-900 text-white rounded-lg transition-colors flex items-center gap-1 text-xs font-bold cursor-pointer"
+                className="w-9 h-9 bg-white/15 hover:bg-white/25 text-white rounded-xl transition-colors flex items-center justify-center cursor-pointer"
                 title="Instruções de Uso do Aplicativo"
               >
-                <HelpCircle size={15} />
-                <span className="hidden sm:inline">Guia</span>
+                <HelpCircle size={16} />
               </button>
               <button 
                 onClick={handleManualSync} 
-                className="p-2 bg-blue-800/80 hover:bg-blue-900 text-white rounded-lg transition-colors flex items-center justify-center cursor-pointer" 
+                className="w-9 h-9 bg-white/15 hover:bg-white/25 text-white rounded-xl transition-colors flex items-center justify-center cursor-pointer" 
                 title="Sincronizar com Sistema"
               >
                 <RefreshCw size={15} className={isSyncing ? 'animate-spin' : ''} />
               </button>
-              <button onClick={onLogout} className="p-2 bg-blue-800 hover:bg-blue-900 text-white rounded-lg transition-colors flex items-center gap-1.5 text-xs font-bold cursor-pointer" title="Sair do Sistema">
-                <LogOut size={16} />
+              <button
+                onClick={onLogout}
+                className="h-9 px-2.5 bg-white/15 hover:bg-red-600/80 text-white rounded-xl transition-colors flex items-center gap-1 text-xs font-bold cursor-pointer"
+                title="Sair do Sistema"
+              >
+                <LogOut size={15} />
                 <span>Sair</span>
               </button>
             </div>
@@ -685,174 +1269,367 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
                 ))}
               </div>
 
+              {/* Quadro de Assinatura do Inspetor */}
+              <SignaturePadBox
+                inspectorName={displayUserName}
+                signatureDataUrl={inspectorSignature}
+                onChange={setInspectorSignature}
+              />
+
               {/* Botão de Envio */}
               <button 
                 type="button"
                 onClick={handleSubmitForm}
-                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm py-4 rounded-xl shadow-lg shadow-emerald-200 transition-all flex items-center justify-center mt-6"
+                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm py-4 rounded-xl shadow-lg shadow-emerald-200 transition-all flex items-center justify-center mt-6 cursor-pointer"
               >
                 <CheckCircle size={18} className="mr-2" />
-                Finalizar e Enviar Formulário
+                Assinar, Finalizar e Enviar Formulário
               </button>
             </div>
           ) : activeFormId !== null ? (
-            /* 2. FORMULÁRIO DILIGENCIAMENTO PADRÃO DA ROTA */
-            <div className="space-y-6 animate-[slideIn_0.3s_ease-out]">
-              <div className="flex items-center mb-4 pb-4 border-b border-gray-200">
-                <button onClick={() => setActiveFormId(null)} className="mr-3 p-2 bg-gray-200 rounded-full hover:bg-gray-300">
-                  <ChevronRight size={16} className="rotate-180" />
-                </button>
-                <h2 className="text-lg font-extrabold text-gray-800 leading-tight">Formulário de Inspeção<br/><span className="text-sm font-bold text-blue-600">Diligenciamento</span></h2>
+            /* 2. FORMULÁRIO DILIGENCIAMENTO / O.S. PADRÃO DA ROTA */
+            <div className="space-y-5 animate-[slideIn_0.25s_ease-out]">
+              <div className="flex items-center justify-between mb-2 pb-3 border-b border-gray-200">
+                <div className="flex items-center">
+                  <button
+                    type="button"
+                    onClick={() => setActiveFormId(null)}
+                    className="mr-3 p-2 bg-white border border-gray-200 rounded-xl hover:bg-gray-100 shadow-2xs cursor-pointer"
+                  >
+                    <ArrowLeft size={16} />
+                  </button>
+                  <div>
+                    <h2 className="text-base sm:text-lg font-extrabold text-gray-900 leading-tight">
+                      Ordem de Serviço (O.S.)
+                    </h2>
+                    <span className="text-xs font-bold text-blue-600">
+                      {osOrderNumber} • {osType}
+                    </span>
+                  </div>
+                </div>
+                <span className="text-[10px] font-extrabold uppercase px-2.5 py-1 rounded-full bg-blue-100 text-blue-700">
+                  Campo • GPS
+                </span>
               </div>
               
-              <div className="space-y-5">
-                <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm space-y-4">
-                  <h3 className="font-bold text-gray-900 border-b border-gray-100 pb-2 text-sm">1. Informações do Cliente</h3>
-                  <div className="grid grid-cols-1 gap-4">
+              <div className="space-y-4">
+                {/* 1. Informações do Cliente */}
+                <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm space-y-3.5">
+                  <h3 className="font-extrabold text-gray-900 border-b border-gray-100 pb-2 text-xs uppercase tracking-wider text-blue-800">
+                    1. Identificação do Cliente
+                  </h3>
+                  <div className="grid grid-cols-1 gap-3.5">
                     <div>
-                      <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1 block">Nome do Cliente</label>
-                      <select 
-                        className="w-full bg-gray-50 border border-gray-200 rounded-lg p-2.5 text-sm font-bold text-gray-800"
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          const cpfInput = document.getElementById('cpf_cnpj') as HTMLInputElement;
-                          const enderecoInput = document.getElementById('endereco') as HTMLInputElement;
-                          
-                          if (val === 'coracorthe') {
-                            if (cpfInput) cpfInput.value = '12.345.678/0001-90';
-                            if (enderecoInput) enderecoInput.value = 'Coracorthe Hardox Wearparts, BH';
-                          } else if (val === 'abc') {
-                            if (cpfInput) cpfInput.value = '98.765.432/0001-10';
-                            if (enderecoInput) enderecoInput.value = 'Av. Industrial, 500 - Contagem, MG';
-                          } else if (val === 'mercado') {
-                            if (cpfInput) cpfInput.value = '55.666.777/0001-22';
-                            if (enderecoInput) enderecoInput.value = 'Av. Augusto de Lima, 744 - Centro, BH';
-                          } else {
-                            if (cpfInput) cpfInput.value = '';
-                            if (enderecoInput) enderecoInput.value = '';
-                          }
-                        }}
+                      <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1 block">
+                        Cliente Selecionado *
+                      </label>
+                      <select
+                        value={osClientKey}
+                        onChange={(e) => handleSelectOsClient(e.target.value)}
+                        className="w-full bg-gray-50 border border-gray-200 rounded-xl p-2.5 text-xs sm:text-sm font-bold text-gray-800 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
                       >
-                        <option value="">Selecione o Cliente...</option>
+                        <option value="mercado">Mercado Central, BH</option>
+                        <option value="abc">Fábrica ABC, Contagem</option>
                         <option value="coracorthe">Coracorthe Hardox Wearparts</option>
-                        <option value="abc">Fábrica ABC</option>
-                        <option value="mercado">Mercado Central</option>
                       </select>
                     </div>
 
-                    <div>
-                      <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1 block">CPF / CNPJ</label>
-                      <input id="cpf_cnpj" type="text" readOnly placeholder="Preenchimento automático" className="w-full bg-gray-100 border border-gray-200 rounded-lg p-2.5 text-sm font-bold text-gray-500" />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1 block">
+                          CPF / CNPJ
+                        </label>
+                        <input
+                          type="text"
+                          value={osCpfCnpj}
+                          onChange={(e) => setOsCpfCnpj(e.target.value)}
+                          className="w-full bg-gray-50 border border-gray-200 rounded-xl p-2.5 text-xs sm:text-sm font-bold text-gray-700"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1 block">
+                          Nº da O.S. / Pedido
+                        </label>
+                        <input
+                          type="text"
+                          value={osOrderNumber}
+                          onChange={(e) => setOsOrderNumber(e.target.value)}
+                          className="w-full bg-gray-50 border border-gray-200 rounded-xl p-2.5 text-xs sm:text-sm font-bold text-gray-700"
+                        />
+                      </div>
                     </div>
 
                     <div>
-                      <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1 block">Endereço</label>
-                      <input id="endereco" type="text" readOnly placeholder="Preenchimento automático" className="w-full bg-gray-100 border border-gray-200 rounded-lg p-2.5 text-sm font-bold text-gray-500" />
+                      <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1 block">
+                        Endereço da Inspeção
+                      </label>
+                      <input
+                        type="text"
+                        value={osAddress}
+                        onChange={(e) => setOsAddress(e.target.value)}
+                        className="w-full bg-gray-50 border border-gray-200 rounded-xl p-2.5 text-xs sm:text-sm font-bold text-gray-700"
+                      />
                     </div>
                   </div>
                 </div>
 
-                <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm space-y-4">
-                  <h3 className="font-bold text-gray-900 border-b border-gray-100 pb-2 text-sm">2. Detalhes da Inspeção</h3>
-                  <div className="grid grid-cols-2 gap-4">
+                {/* 2. Detalhes Técnicos da Inspeção */}
+                <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm space-y-3.5">
+                  <h3 className="font-extrabold text-gray-900 border-b border-gray-100 pb-2 text-xs uppercase tracking-wider text-blue-800">
+                    2. Dados Técnicos e Parecer
+                  </h3>
+                  <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1 block">Tipo de Inspeção</label>
-                      <select className="w-full bg-gray-50 border border-gray-200 rounded-lg p-2.5 text-sm font-bold text-gray-800">
-                        <option>Diligenciamento</option>
-                        <option>Fabricação</option>
-                        <option>Montagem</option>
-                        <option>Solda</option>
+                      <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1 block">
+                        Tipo de Inspeção
+                      </label>
+                      <select
+                        value={osType}
+                        onChange={(e) => setOsType(e.target.value)}
+                        className="w-full bg-gray-50 border border-gray-200 rounded-xl p-2.5 text-xs sm:text-sm font-bold text-gray-800"
+                      >
+                        <option value="Diligenciamento">Diligenciamento</option>
+                        <option value="Fabricação">Fabricação</option>
+                        <option value="Montagem">Montagem</option>
+                        <option value="Solda">Solda</option>
+                        <option value="Dimensional">Dimensional</option>
                       </select>
                     </div>
 
                     <div>
-                      <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1 block">Inspetor</label>
-                      <input type="text" readOnly value="João Silva" className="w-full bg-gray-100 border border-gray-200 rounded-lg p-2.5 text-sm font-bold text-gray-500" />
+                      <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1 block">
+                        Inspetor Responsável
+                      </label>
+                      <input
+                        type="text"
+                        readOnly
+                        value={displayUserName}
+                        className="w-full bg-gray-100 border border-gray-200 rounded-xl p-2.5 text-xs sm:text-sm font-bold text-gray-600"
+                      />
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1 block">Data</label>
-                      <input type="text" readOnly value={format(new Date(), 'dd/MM/yyyy')} className="w-full bg-gray-100 border border-gray-200 rounded-lg p-2.5 text-sm font-bold text-gray-500" />
+                  <div>
+                    <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">
+                      Parecer de Conformidade *
+                    </label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {['Conforme / Aprovado', 'Com Ressalvas', 'Não Conforme'].map((opt) => {
+                        const selected = osStatusResult === opt;
+                        return (
+                          <button
+                            key={opt}
+                            type="button"
+                            onClick={() => setOsStatusResult(opt)}
+                            className={`py-2.5 px-2 rounded-xl border text-[11px] font-extrabold transition-all cursor-pointer ${
+                              selected
+                                ? 'bg-blue-600 border-blue-600 text-white shadow-xs'
+                                : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
+                            }`}
+                          >
+                            {opt}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1 block">
+                      Observações e Constatações Técnicas
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={osNotes}
+                      onChange={(e) => setOsNotes(e.target.value)}
+                      placeholder="Descreva as peças inspecionadas, medições e observações da O.S..."
+                      className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-xs font-semibold text-gray-800 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none resize-none"
+                    />
+                  </div>
+
+                  {/* Fotos da O.S. */}
+                  <div className="space-y-2 pt-1">
+                    <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block">
+                      Evidências Fotográficas da O.S. ({osPhotos.length})
+                    </label>
+                    <input
+                      type="file"
+                      id="os-photo-input"
+                      accept="image/*"
+                      capture="environment"
+                      multiple
+                      className="hidden"
+                      onChange={handleOsPhotoSelect}
+                    />
+                    <div className="grid grid-cols-2 gap-2">
+                      <label
+                        htmlFor="os-photo-input"
+                        className="cursor-pointer bg-orange-50 border border-orange-200 hover:bg-orange-100 text-orange-700 font-bold text-xs py-2.5 px-3 rounded-xl flex items-center justify-center transition-colors"
+                      >
+                        <Camera size={14} className="mr-1.5" /> Tirar / Anexar Foto
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOsPhotos(prev => [
+                            ...prev,
+                            {
+                              type: 'photo',
+                              name: `Evidencia_OS_${prev.length + 1}.jpg`,
+                              url: 'https://images.unsplash.com/photo-1504917595217-d4dc5ebe6122?w=500&h=360&fit=crop',
+                            },
+                          ]);
+                          toast.success('Foto de demonstração adicionada à O.S.!');
+                        }}
+                        className="bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs py-2.5 px-3 rounded-xl flex items-center justify-center transition-colors cursor-pointer"
+                      >
+                        <Upload size={13} className="mr-1.5" /> Demo Foto
+                      </button>
                     </div>
 
-                    <div>
-                      <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1 block">Status</label>
-                      <span className="inline-block w-full bg-blue-50 text-blue-700 border border-blue-200 rounded-lg p-2.5 text-sm font-extrabold text-center">
-                        Em Andamento
-                      </span>
-                    </div>
+                    {osPhotos.length > 0 && (
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        {osPhotos.map((p, idx) => (
+                          <div key={idx} className="relative rounded-xl overflow-hidden border border-gray-200 bg-gray-100">
+                            <img src={p.url} alt={p.name} className="w-full h-20 object-cover" />
+                            <button
+                              type="button"
+                              onClick={() => setOsPhotos(prev => prev.filter((_, i) => i !== idx))}
+                              className="absolute top-1 right-1 bg-black/60 hover:bg-red-600 text-white p-1 rounded-full"
+                            >
+                              <X size={10} />
+                            </button>
+                            <p className="text-[9px] text-gray-600 truncate px-1.5 py-0.5 bg-white font-medium">{p.name}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
 
-                <button 
-                  onClick={() => {
-                    toast.success('Inspeção assinada e finalizada com sucesso!');
-                    setActiveFormId(null);
-                  }}
-                  className="w-full bg-emerald-600 text-white font-extrabold text-sm py-4 rounded-xl shadow-lg hover:bg-emerald-700 transition-colors flex items-center justify-center mt-6"
+                {/* 3. Assinatura do Inspetor */}
+                <SignaturePadBox
+                  inspectorName={displayUserName}
+                  signatureDataUrl={inspectorSignature}
+                  onChange={setInspectorSignature}
+                />
+
+                <button
+                  type="button"
+                  onClick={handleSubmitOsForm}
+                  className="w-full bg-emerald-600 text-white font-extrabold text-sm py-4 rounded-xl shadow-lg shadow-emerald-200 hover:bg-emerald-700 transition-colors flex items-center justify-center mt-4 cursor-pointer"
                 >
                   <CheckCircle size={18} className="mr-2" />
-                  Assinar e Finalizar O.S.
+                  Assinar e Enviar Ordem de Serviço
                 </button>
 
               </div>
             </div>
           ) : activeTab === 'rota' ? (
             /* 3. ABA MINHA ROTA */
-            <div className="space-y-6">
-              <div className="flex justify-between items-end">
-                <h2 className="text-lg font-extrabold text-gray-800">Sua Rota Hoje</h2>
-                <span className="text-xs font-bold text-blue-600 bg-blue-100 px-2 py-1 rounded-md">{format(new Date(), 'dd/MM/yyyy')}</span>
+            <div className="space-y-4">
+              {/* Card de Resumo do Dia */}
+              <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] font-extrabold text-blue-600 uppercase tracking-wider block">
+                    Agenda de Campo
+                  </span>
+                  <h2 className="text-base font-extrabold text-slate-900 leading-tight mt-0.5">
+                    Sua Rota Hoje
+                  </h2>
+                </div>
+                <span className="text-xs font-extrabold text-blue-700 bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-xl">
+                  {format(new Date(), 'dd/MM/yyyy')}
+                </span>
               </div>
 
-              <div className="relative pl-4 space-y-6">
-                <div className="absolute left-[23px] top-4 bottom-8 w-0.5 bg-gray-200"></div>
+              <div className="relative pl-2 space-y-4">
+                <div className="absolute left-[17px] top-5 bottom-6 w-0.5 bg-slate-200"></div>
 
                 {mockRoute.map((stop) => {
-                  const isStarted = startedDestinations.includes(stop.id);
-                  const isDone = stop.status === 'done';
+                  const isDone = stop.status === 'done' || completedDestinations.includes(stop.id);
+                  const isStarted = !isDone && startedDestinations.includes(stop.id);
 
                   return (
-                    <div key={stop.id} className="relative z-10">
-                      <div className="flex items-center mb-2">
-                        <div className={`w-4 h-4 rounded-full border-[3px] border-white shadow-sm flex-shrink-0 z-10 ${isDone || isStarted ? 'bg-emerald-500' : 'bg-gray-300'}`}></div>
-                        <span className="ml-3 text-sm font-bold text-gray-500">{stop.time}</span>
-                      </div>
-                      
-                      <div className={`ml-8 p-4 rounded-2xl border ${isStarted ? 'bg-blue-50 border-blue-200' : isDone ? 'bg-gray-100 border-transparent opacity-60' : 'bg-white border-gray-200 shadow-sm'}`}>
-                        <h3 className="font-bold text-gray-900 leading-tight">{stop.location}</h3>
-                        {stop.type && <p className="text-xs font-bold text-gray-400 mt-1 uppercase tracking-wider">{stop.type}</p>}
+                    <div key={stop.id} className="relative z-10 flex items-start gap-3">
+                      <div className={`mt-4 w-4 h-4 rounded-full border-[3px] border-white shadow-sm shrink-0 z-10 ${isDone || isStarted ? 'bg-emerald-500' : 'bg-blue-500'}`}></div>
+
+                      <div className={`flex-1 p-4 rounded-2xl border transition-all ${
+                        isStarted
+                          ? 'bg-blue-50/80 border-blue-200 shadow-sm'
+                          : isDone
+                          ? 'bg-slate-100 border-slate-200/70'
+                          : 'bg-white border-slate-200 shadow-sm'
+                      }`}>
+                        <div className="flex items-center justify-between gap-2 mb-1.5">
+                          <span className="inline-flex items-center gap-1 text-xs font-extrabold text-slate-500">
+                            <Clock size={12} className="text-blue-600" />
+                            {stop.time}
+                          </span>
+                          <span className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full ${
+                            isDone
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : isStarted
+                              ? 'bg-blue-100 text-blue-700'
+                              : 'bg-amber-50 text-amber-700 border border-amber-200'
+                          }`}>
+                            {isDone ? 'Concluído' : isStarted ? 'Em Atendimento' : stop.type || 'Programado'}
+                          </span>
+                        </div>
+
+                        <h3 className="font-extrabold text-slate-900 text-sm sm:text-base leading-snug">
+                          {stop.location}
+                        </h3>
+                        {stop.type && (
+                          <p className="text-[11px] font-bold text-slate-400 mt-0.5 uppercase tracking-wider">
+                            Código: {stop.type}
+                          </p>
+                        )}
                         
                         {!isDone && !isStarted && (
                           <button 
                             onClick={() => handleStartInspection(stop.id)}
                             disabled={isStarting}
-                            className="mt-4 w-full bg-blue-600 text-white font-bold text-sm py-3 rounded-xl shadow-[0_4px_14px_0_rgba(37,99,235,0.39)] hover:bg-blue-700 hover:shadow-[0_6px_20px_rgba(37,99,235,0.23)] hover:-translate-y-0.5 transition-all flex justify-center items-center"
+                            className="mt-3.5 w-full bg-blue-600 text-white font-bold text-xs sm:text-sm py-3 rounded-xl shadow-[0_4px_12px_rgba(37,99,235,0.3)] hover:bg-blue-700 active:scale-[0.99] transition-all flex justify-center items-center cursor-pointer"
                           >
                             {isStarting ? (
-                              <Clock size={18} className="animate-spin" />
+                              <Clock size={17} className="animate-spin" />
                             ) : (
                               <>
-                                <Navigation size={16} className="mr-2" /> Iniciar Inspeção
+                                <Navigation size={15} className="mr-2" /> Iniciar Inspeção
                               </>
                             )}
                           </button>
                         )}
 
                         {isStarted && (
-                          <div className="mt-4 space-y-2">
-                            <div className="flex items-center text-emerald-700 bg-emerald-100 px-3 py-2 rounded-lg text-[11px] font-bold">
-                              <CheckCircle size={14} className="mr-2" />
-                              O.S. Gerada. Serviço em Andamento.
+                          <div className="mt-3.5 space-y-2">
+                            <div className="flex items-center text-emerald-700 bg-emerald-100 px-3 py-2 rounded-xl text-[11px] font-bold">
+                              <CheckCircle size={14} className="mr-2 shrink-0" />
+                              O.S. Gerada • Atendimento em andamento
                             </div>
                             <button 
-                              onClick={() => setActiveFormId(stop.id)}
-                              className="w-full bg-white border-2 border-blue-600 text-blue-700 font-bold text-sm py-2.5 rounded-xl hover:bg-blue-50 transition-colors flex justify-center items-center"
+                              onClick={() => handleOpenOsForm(stop.id)}
+                              className="w-full bg-white border-2 border-blue-600 text-blue-700 font-bold text-xs sm:text-sm py-2.5 rounded-xl hover:bg-blue-50 transition-colors flex justify-center items-center cursor-pointer"
                             >
-                              <FileText size={16} className="mr-2" />
-                              Preencher Formulário
+                              <FileText size={15} className="mr-2" />
+                              Preencher Formulário da O.S.
+                            </button>
+                          </div>
+                        )}
+
+                        {isDone && stop.id !== 1 && (
+                          <div className="mt-3 pt-2.5 border-t border-slate-200 flex items-center justify-between gap-2">
+                            <span className="text-[11px] font-bold text-emerald-700 flex items-center">
+                              <CheckCircle size={13} className="mr-1.5" /> O.S. Assinada e Enviada
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setActiveTab('preenchidos')}
+                              className="text-[11px] font-extrabold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-1 rounded-lg cursor-pointer"
+                            >
+                              Ver PDF
                             </button>
                           </div>
                         )}
@@ -1078,6 +1855,22 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
                                 <p className="text-[11px] font-semibold text-gray-700 truncate">{att.name}</p>
                               </div>
                             ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {viewingResponse.inspectorSignature && (
+                        <div className="space-y-1.5 pt-2">
+                          <p className="text-xs font-extrabold text-gray-700 uppercase">Assinatura do Inspetor Responsável</p>
+                          <div className="border border-blue-200 rounded-xl p-3 bg-blue-50/40 flex flex-col items-center">
+                            <img
+                              src={viewingResponse.inspectorSignature}
+                              alt="Assinatura do Inspetor"
+                              className="max-h-24 object-contain"
+                            />
+                            <span className="text-[10px] font-bold text-slate-600 mt-1">
+                              {viewingResponse.inspectorName} • Assinado Digitalmente
+                            </span>
                           </div>
                         </div>
                       )}
@@ -1328,11 +2121,7 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
               accept="image/*" 
               capture="environment" 
               className="hidden" 
-              onChange={(e) => {
-                if (e.target.files && e.target.files.length > 0) {
-                  toast.success(`Foto capturada com carimbo GPS (${format(new Date(), 'HH:mm')})!`);
-                }
-              }}
+              onChange={handleLenteCapture}
             />
             <div className="w-11 h-11 rounded-full bg-blue-600 text-white flex items-center justify-center shadow-lg -mt-6 mb-0.5 border-4 border-gray-50">
               <Camera size={18} />
@@ -1727,6 +2516,84 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
                     <span>Entendi! Começar a Usar o App</span>
                   </button>
                 )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL DE ASSINATURA DIGITAL OBRIGATÓRIA AO FINALIZAR O FORMULÁRIO */}
+        {signatureModalTarget !== null && (
+          <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-[fadeIn_0.2s_ease-out]">
+            <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden border border-slate-200 flex flex-col">
+              <div className="bg-gradient-to-r from-[#0a2e63] via-[#134796] to-[#1d4ed8] text-white p-4 flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center shrink-0">
+                    <Edit3 size={18} />
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-blue-200 block">
+                      Etapa Final Obrigatória
+                    </span>
+                    <h3 className="text-sm font-black leading-tight">
+                      Assinatura Digital do Inspetor
+                    </h3>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSignatureModalTarget(null)}
+                  className="p-1.5 rounded-xl bg-white/15 hover:bg-white/25 text-white cursor-pointer"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="p-4 space-y-4">
+                <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-900">
+                  <p className="font-extrabold">
+                    {signatureModalTarget === 'dynamic'
+                      ? activeFillingForm?.name
+                      : `Ordem de Serviço (${osOrderNumber}) - ${osClientName}`}
+                  </p>
+                  <p className="text-[11px] text-blue-700 mt-0.5">
+                    Inspetor: <strong>{displayUserName}</strong> • {format(new Date(), 'dd/MM/yyyy HH:mm')}
+                  </p>
+                </div>
+
+                <SignaturePadBox
+                  inspectorName={displayUserName}
+                  signatureDataUrl={inspectorSignature}
+                  onChange={setInspectorSignature}
+                />
+
+                <div className="flex flex-col gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!inspectorSignature) {
+                        toast.error('Por favor, assine com o dedo no quadro acima (ou toque em Gerar Rubrica Digital) para finalizar!');
+                        return;
+                      }
+                      if (signatureModalTarget === 'dynamic') {
+                        handleSubmitForm();
+                      } else {
+                        handleSubmitOsForm();
+                      }
+                    }}
+                    className="w-full py-3.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm shadow-lg shadow-emerald-200 flex items-center justify-center gap-2 transition-all cursor-pointer"
+                  >
+                    <CheckCircle size={18} />
+                    <span>Confirmar Assinatura e Enviar Agora</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSignatureModalTarget(null)}
+                    className="w-full py-2 text-xs font-bold text-slate-500 hover:text-slate-800 text-center cursor-pointer"
+                  >
+                    Voltar e Revisar Formulário
+                  </button>
+                </div>
               </div>
             </div>
           </div>

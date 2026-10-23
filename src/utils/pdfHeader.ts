@@ -660,11 +660,30 @@ export async function generateCorporateFormResponsePDF(
   const leftSigCenterX = 58;
   const rightSigCenterX = pageWidth - 58;
 
-  // Assinatura digital simulada em itálico acima da linha do inspetor
-  doc.setFont('times', 'bolditalic');
-  doc.setFontSize(11);
-  doc.setTextColor(15, 44, 89);
-  doc.text(resp.inspectorName, leftSigCenterX, sigY - 2.5, { align: 'center' });
+  // Assinatura manuscrita do inspetor (se desenhada no app) ou rubrica digital
+  if (resp.inspectorSignature) {
+    try {
+      const sigImg = await loadImageAsJpegDataUrl(resp.inspectorSignature, 400, '#f8fafc');
+      if (sigImg) {
+        doc.addImage(sigImg.dataUrl, 'JPEG', leftSigCenterX - 22, sigY - 12.5, 44, 11.5, undefined, 'FAST');
+      } else {
+        doc.setFont('times', 'bolditalic');
+        doc.setFontSize(11);
+        doc.setTextColor(15, 44, 89);
+        doc.text(resp.inspectorName, leftSigCenterX, sigY - 2.5, { align: 'center' });
+      }
+    } catch {
+      doc.setFont('times', 'bolditalic');
+      doc.setFontSize(11);
+      doc.setTextColor(15, 44, 89);
+      doc.text(resp.inspectorName, leftSigCenterX, sigY - 2.5, { align: 'center' });
+    }
+  } else {
+    doc.setFont('times', 'bolditalic');
+    doc.setFontSize(11);
+    doc.setTextColor(15, 44, 89);
+    doc.text(resp.inspectorName, leftSigCenterX, sigY - 2.5, { align: 'center' });
+  }
 
   doc.setDrawColor(100, 116, 139);
   doc.setLineWidth(0.4);
@@ -690,5 +709,43 @@ export async function generateCorporateFormResponsePDF(
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-zA-Z0-9_-]/g, '_');
-  doc.save(`Relatorio_DA_${safeName}_${format(submittedDate, 'ddMMyyyy_HHmm')}.pdf`);
+  const fileName = `Relatorio_DA_${safeName}_${format(submittedDate, 'ddMMyyyy_HHmm')}.pdf`;
+
+  await saveOrDownloadPDF(doc, fileName);
+}
+
+/**
+ * Salva/baixa o PDF de forma compatível tanto com navegadores Web quanto com o APK Android Nativo.
+ */
+export async function saveOrDownloadPDF(doc: jsPDF, fileName: string): Promise<void> {
+  const win = window as any;
+
+  // 1. Se estiver dentro do APK Android com a ponte nativa AndroidPDFBridge
+  if (win.AndroidPDFBridge && typeof win.AndroidPDFBridge.savePdfToDownloads === 'function') {
+    const dataUri = doc.output('datauristring');
+    const ok = win.AndroidPDFBridge.savePdfToDownloads(dataUri, fileName);
+    if (ok) return;
+  }
+
+  // 2. Fallback para Web Share API em celulares caso não tenha a ponte nativa
+  try {
+    const isMobileDevice = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    if (isMobileDevice && navigator.canShare) {
+      const blob = doc.output('blob');
+      const file = new File([blob], fileName, { type: 'application/pdf' });
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: fileName,
+          text: 'Relatório Técnico Corporativo - D&A Inspeções',
+        });
+        return;
+      }
+    }
+  } catch {
+    // Se o usuário cancelar o share ou o navegador não suportar, segue para o download padrão
+  }
+
+  // 3. Download padrão no navegador (PC / Mobile Chrome)
+  doc.save(fileName);
 }

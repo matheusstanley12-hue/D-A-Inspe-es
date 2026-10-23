@@ -1,11 +1,17 @@
 import { useState, useEffect } from 'react';
 import { Capacitor } from '@capacitor/core';
-import Login from './Login';
+import Login, { type PendingFirstAccessUser } from './Login';
 import AdminView from './AdminView';
 import InspectorMobileApp from './InspectorMobileApp';
 import ClientPortal from './ClientPortal';
 import toast, { Toaster } from 'react-hot-toast';
 import { supabase } from './supabaseClient';
+import {
+  findSystemUserByEmail,
+  updateUserPassword,
+  syncFromServer,
+  DEFAULT_INITIAL_PASSWORD,
+} from './stores/formulariosStore';
 
 function checkIsMobileApp(): boolean {
   if (typeof window === 'undefined') return false;
@@ -23,6 +29,7 @@ function App() {
   const [loginError, setLoginError] = useState('');
   const [loading, setLoading] = useState(false);
   const [isMobileApp, setIsMobileApp] = useState(checkIsMobileApp);
+  const [pendingFirstAccess, setPendingFirstAccess] = useState<PendingFirstAccessUser | null>(null);
 
   useEffect(() => {
     const handleResize = () => setIsMobileApp(checkIsMobileApp());
@@ -34,104 +41,183 @@ function App() {
     // Check if there is an active Supabase session
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
-        const metadataRole = session.user.user_metadata?.role;
-        const role = metadataRole || (session.user.email?.includes('inspetor') ? 'inspetor' : session.user.email?.includes('cliente') ? 'cliente' : 'gestor');
+        const email = session.user.email || '';
+        const localUser = findSystemUserByEmail(email);
+        const metadataRole = session.user.user_metadata?.role || localUser?.role;
+        const role: 'gestor' | 'inspetor' | 'cliente' =
+          metadataRole === 'inspetor'
+            ? 'inspetor'
+            : metadataRole === 'cliente'
+            ? 'cliente'
+            : email.includes('inspetor')
+            ? 'inspetor'
+            : email.includes('cliente')
+            ? 'cliente'
+            : 'gestor';
         setUserRole(role);
-        setUserEmail(session.user.email || '');
+        setUserEmail(email);
         setIsAuthenticated(true);
       }
     }).catch((err) => {
       console.warn('Supabase getSession network status:', err?.message || err);
     });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) {
-        const metadataRole = session.user.user_metadata?.role;
-        const role = metadataRole || (session.user.email?.includes('inspetor') ? 'inspetor' : session.user.email?.includes('cliente') ? 'cliente' : 'gestor');
-        setUserRole(role);
-        setUserEmail(session.user.email || '');
-        setIsAuthenticated(true);
-      }
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
   }, []);
 
   const handleLogin = async (email: string, pass: string) => {
     setLoginError('');
-    if (!email.trim() || !pass.trim()) {
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanPass = pass.trim();
+
+    if (!cleanEmail || !cleanPass) {
       setLoginError('Por favor, preencha o usuário e a senha.');
       return;
     }
 
+    // 1. Sempre sincronizar primeiro com o servidor para garantir que se o usuário já trocou a senha
+    // em outro computador/navegador (ou se o Gestor resetou a senha), este dispositivo receba o estado atualizado!
+    await syncFromServer();
+
+    const registeredUser = findSystemUserByEmail(cleanEmail);
+
+    if (registeredUser) {
+      if (registeredUser.status === 'inativo') {
+        setLoginError('Este usuário está inativo. Entre em contato com o Gestor.');
+        return;
+      }
+
+      // Validação ESTRITA da senha cadastrada
+      const expectedPassword = registeredUser.mustChangePassword
+        ? DEFAULT_INITIAL_PASSWORD
+        : registeredUser.password;
+
+      if (cleanPass !== expectedPassword) {
+        setLoginError(
+          registeredUser.mustChangePassword
+            ? `Senha incorreta. Para seu 1º acesso utilize a senha padrão: ${DEFAULT_INITIAL_PASSWORD}`
+            : 'Senha incorreta. Verifique sua senha e tente novamente.'
+        );
+        return;
+      }
+
+      const mappedRole: 'gestor' | 'inspetor' | 'cliente' =
+        registeredUser.role === 'inspetor'
+          ? 'inspetor'
+          : registeredUser.role === 'cliente'
+          ? 'cliente'
+          : 'gestor';
+
+      // Se o usuário estiver com troca obrigatória no 1º acesso ativa, exige criar a nova senha lá mesmo
+      if (registeredUser.mustChangePassword) {
+        setPendingFirstAccess({
+          email: registeredUser.email,
+          name: registeredUser.name,
+          role: mappedRole,
+        });
+        toast('Primeiro acesso! Defina sua nova senha pessoal para continuar.', { icon: '🔐' });
+        return;
+      }
+
+      setUserRole(mappedRole);
+      setUserEmail(registeredUser.email);
+      setIsAuthenticated(true);
+      setLoginError('');
+      toast.success(`Bem-vindo(a), ${registeredUser.name}! Acesso liberado.`);
+      return;
+    }
+
+    // 2. Caso o e-mail não esteja na base local, valida estritamente no Supabase (sem permitir qualquer senha!)
     setLoading(true);
     let authenticated = false;
     let determinedRole: 'gestor' | 'inspetor' | 'cliente' = 'gestor';
+    let userName = cleanEmail.split('@')[0].replace(/[._-]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) || 'Usuário';
+    let mustChangeFromSupabase = false;
 
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password: pass
+        email: cleanEmail,
+        password: cleanPass
       });
 
       if (!error && data?.user) {
         const metadataRole = data.user.user_metadata?.role;
-        determinedRole = metadataRole || (email.includes('inspetor') ? 'inspetor' : email.includes('cliente') ? 'cliente' : 'gestor');
+        userName = data.user.user_metadata?.name || userName;
+        mustChangeFromSupabase = Boolean(data.user.user_metadata?.must_change_password);
+        determinedRole = metadataRole === 'inspetor'
+          ? 'inspetor'
+          : metadataRole === 'cliente'
+          ? 'cliente'
+          : cleanEmail.includes('inspetor')
+          ? 'inspetor'
+          : cleanEmail.includes('cliente')
+          ? 'cliente'
+          : 'gestor';
         authenticated = true;
       }
     } catch (err: any) {
-      console.warn('Supabase indisponível no momento, realizando validação local:', err);
-    }
-
-    // Se o Supabase estiver offline ou não autenticado remotamente, validar credenciais localmente
-    if (!authenticated) {
-      const lowerEmail = email.toLowerCase().trim();
-      
-      // Credenciais conhecidas / autorizadas
-      if (
-        lowerEmail === 'matheus.stanley12@gmail.com' ||
-        lowerEmail === 'admin@deainspecoes.com.br' ||
-        lowerEmail.includes('gestor') ||
-        lowerEmail.includes('admin')
-      ) {
-        determinedRole = 'gestor';
-        authenticated = true;
-      } else if (lowerEmail === 'testeinspetor@gmail.com' || lowerEmail.includes('inspetor')) {
-        determinedRole = 'inspetor';
-        authenticated = true;
-      } else if (lowerEmail === 'testecliente@gmail.com' || lowerEmail.includes('cliente')) {
-        determinedRole = 'cliente';
-        authenticated = true;
-      } else if (pass.length >= 3) {
-        // Qualquer outra conta com senha válida
-        determinedRole = 'gestor';
-        authenticated = true;
-      }
+      console.warn('Supabase indisponível no momento:', err);
     }
 
     setLoading(false);
 
     if (authenticated) {
+      if (cleanPass === DEFAULT_INITIAL_PASSWORD || mustChangeFromSupabase) {
+        setPendingFirstAccess({
+          email: cleanEmail,
+          name: userName,
+          role: determinedRole,
+        });
+        toast('Primeiro acesso com senha padrão (123456)! Crie sua nova senha agora.', { icon: '🔐' });
+        return;
+      }
+
+      // Usuário já possui senha pessoal definida no Supabase: sincroniza para nunca mais pedir troca de 1º acesso em nenhum computador
+      updateUserPassword(cleanEmail, cleanPass);
+
       setUserRole(determinedRole);
-      setUserEmail(email.trim());
+      setUserEmail(cleanEmail);
       setIsAuthenticated(true);
       setLoginError('');
       toast.success(`Bem-vindo ao D&A Inspeções! Acesso liberado.`);
     } else {
-      setLoginError('E-mail ou senha incorretos.');
+      setLoginError('Usuário não encontrado ou senha incorreta.');
     }
   };
 
+  const handleConfirmNewPassword = async (newPass: string) => {
+    if (!pendingFirstAccess) return;
+
+    // Atualiza na store local e sincroniza com o servidor
+    const updatedUser = updateUserPassword(pendingFirstAccess.email, newPass);
+
+    // Tenta atualizar também no Supabase caso exista sessão ativa
+    try {
+      await supabase.auth.updateUser({
+        password: newPass,
+        data: { must_change_password: false },
+      });
+    } catch {
+      // ignore se offline
+    }
+
+    const finalRole = pendingFirstAccess.role;
+    const finalEmail = pendingFirstAccess.email;
+    const finalName = updatedUser?.name || pendingFirstAccess.name;
+
+    setPendingFirstAccess(null);
+    setUserRole(finalRole);
+    setUserEmail(finalEmail);
+    setIsAuthenticated(true);
+    setLoginError('');
+    toast.success(`Senha alterada com sucesso! Bem-vindo(a), ${finalName}!`);
+  };
+
   const handleLogout = () => {
-    // Limpa estado imediatamente (sem travar aguardando rede do Supabase)
     setIsAuthenticated(false);
     setUserRole(null);
     setUserEmail('');
     setLoginError('');
+    setPendingFirstAccess(null);
 
-    // Remove qualquer sessão local do Supabase para evitar relogin automático
     try {
       Object.keys(localStorage).forEach((key) => {
         if (key.startsWith('sb-')) {
@@ -178,7 +264,15 @@ function App() {
           <AdminView onLogout={handleLogout} />
         )
       ) : (
-        <Login onLogin={handleLogin} error={loginError} onSelectRole={handleSelectRole} isMobileApp={isMobileApp} />
+        <Login
+          onLogin={handleLogin}
+          error={loginError}
+          onSelectRole={handleSelectRole}
+          isMobileApp={isMobileApp}
+          pendingFirstAccess={pendingFirstAccess}
+          onConfirmNewPassword={handleConfirmNewPassword}
+          onCancelFirstAccess={() => setPendingFirstAccess(null)}
+        />
       )}
     </>
   );

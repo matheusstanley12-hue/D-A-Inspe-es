@@ -1,13 +1,16 @@
-import { useState } from 'react';
-import { Edit2, Trash2, Shield, User, Mail, UserPlus, CheckCircle, XCircle } from 'react-feather';
+import { useState, useEffect } from 'react';
+import { Edit2, Trash2, Shield, User, Mail, UserPlus, CheckCircle, XCircle, Key, RefreshCw } from 'react-feather';
 import toast from 'react-hot-toast';
 import { createClient } from '@supabase/supabase-js';
-
-const INITIAL_USERS = [
-  { id: 1, name: 'Matheus Stanley', email: 'matheus.stanley12@gmail.com', role: 'gestor', status: 'ativo' },
-  { id: 2, name: 'Teste Cliente', email: 'testecliente@gmail.com', role: 'cliente', status: 'ativo' },
-  { id: 3, name: 'Teste Inspetor', email: 'testeinspetor@gmail.com', role: 'inspetor', status: 'ativo' }
-];
+import {
+  getSystemUsers,
+  saveSystemUsers,
+  resetUserPasswordToDefault,
+  syncFromServer,
+  DEFAULT_INITIAL_PASSWORD,
+  USERS_CHANGE_EVENT,
+  type SystemUser,
+} from './stores/formulariosStore';
 
 const ROLE_COLORS: Record<string, string> = {
   gestor: 'bg-purple-100 text-purple-700 border-purple-200',
@@ -24,40 +27,72 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 export default function UserManager() {
-  const [users, setUsers] = useState(INITIAL_USERS);
+  const [users, setUsers] = useState<SystemUser[]>(() => getSystemUsers());
   const [showModal, setShowModal] = useState(false);
-  const [editingUserId, setEditingUserId] = useState<number | null>(null);
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<{
+    name: string;
+    email: string;
+    role: SystemUser['role'];
+    status: SystemUser['status'];
+    company: string;
+    resetPasswordOnEdit: boolean;
+  }>({
     name: '',
     email: '',
-    password: '',
     role: 'inspetor',
-    status: 'ativo'
+    status: 'ativo',
+    company: '',
+    resetPasswordOnEdit: false,
   });
 
+  useEffect(() => {
+    syncFromServer();
+    const syncUsers = () => setUsers(getSystemUsers());
+    window.addEventListener(USERS_CHANGE_EVENT, syncUsers);
+    return () => window.removeEventListener(USERS_CHANGE_EVENT, syncUsers);
+  }, []);
+
   const handleOpenAdd = () => {
-    setFormData({ name: '', email: '', password: '', role: 'inspetor', status: 'ativo' });
+    setFormData({
+      name: '',
+      email: '',
+      role: 'inspetor',
+      status: 'ativo',
+      company: '',
+      resetPasswordOnEdit: false,
+    });
     setEditingUserId(null);
     setShowModal(true);
   };
 
-  const handleOpenEdit = (user: typeof INITIAL_USERS[0]) => {
-    setFormData({ 
-      name: user.name, 
-      email: user.email, 
-      password: '', // Não carregamos a senha por segurança
-      role: user.role, 
-      status: user.status 
+  const handleOpenEdit = (user: SystemUser) => {
+    setFormData({
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      status: user.status,
+      company: user.company || '',
+      resetPasswordOnEdit: false,
     });
-    setEditingUserId(user.id);
+    setEditingUserId(String(user.id));
     setShowModal(true);
   };
 
-  const handleDelete = (id: number) => {
-    if(confirm('Tem certeza que deseja remover este usuário do sistema?')) {
-      setUsers(users.filter(u => u.id !== id));
+  const handleDelete = (id: string) => {
+    if (confirm('Tem certeza que deseja remover este usuário do sistema?')) {
+      const updated = users.filter(u => String(u.id) !== String(id));
+      saveSystemUsers(updated, true, [String(id)]);
+      setUsers(updated);
+      toast.success('Usuário removido.');
     }
+  };
+
+  const handleResetPassword = (user: SystemUser) => {
+    resetUserPasswordToDefault(String(user.id));
+    setUsers(getSystemUsers());
+    toast.success(`Senha de "${user.name}" redefinida para a senha padrão ${DEFAULT_INITIAL_PASSWORD} (troca obrigatória no próximo acesso)!`);
   };
 
   const [isSaving, setIsSaving] = useState(false);
@@ -65,61 +100,91 @@ export default function UserManager() {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
-    
+
     try {
-      if(editingUserId) {
-        // Edit is hard to do without admin privileges, just update local state for mock users
-        setUsers(users.map(u => u.id === editingUserId ? { ...u, ...formData } : u));
-        toast.success('Usuário atualizado com sucesso!');
+      const cleanEmail = formData.email.trim().toLowerCase();
+      const nowTs = Date.now();
+
+      if (editingUserId) {
+        const updated = users.map(u => {
+          if (String(u.id) === String(editingUserId)) {
+            return {
+              ...u,
+              name: formData.name.trim(),
+              email: cleanEmail,
+              role: formData.role,
+              status: formData.status,
+              company: formData.role === 'cliente' ? formData.company : undefined,
+              password: formData.resetPasswordOnEdit ? DEFAULT_INITIAL_PASSWORD : u.password,
+              mustChangePassword: formData.resetPasswordOnEdit ? true : u.mustChangePassword,
+              passwordChangedAt: formData.resetPasswordOnEdit ? undefined : u.passwordChangedAt,
+              updatedAt: nowTs,
+            };
+          }
+          return u;
+        });
+        saveSystemUsers(updated, true);
+        setUsers(updated);
+        toast.success(
+          formData.resetPasswordOnEdit
+            ? `Usuário atualizado e senha redefinida para ${DEFAULT_INITIAL_PASSWORD}!`
+            : 'Usuário atualizado com sucesso!'
+        );
         setShowModal(false);
       } else {
-        // Create user in Supabase with offline fallback
-        let createdOnSupabase = false;
-        let createdUserId: any = Math.floor(Math.random() * 100000);
+        if (users.some(u => u.email.trim().toLowerCase() === cleanEmail)) {
+          toast.error('Já existe um usuário cadastrado com este e-mail.');
+          setIsSaving(false);
+          return;
+        }
+
+        let createdUserId = 'usr_' + nowTs;
 
         try {
           const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://sua-url-do-supabase.supabase.co';
           const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sua-anon-key';
-          
-          // Use a temporary client to prevent overwriting the current admin's session
+
           const tempClient = createClient(supabaseUrl, supabaseAnonKey, {
             auth: { persistSession: false, autoRefreshToken: false }
           });
 
           const { data, error } = await tempClient.auth.signUp({
-            email: formData.email,
-            password: formData.password || '123456',
+            email: cleanEmail,
+            password: DEFAULT_INITIAL_PASSWORD,
             options: {
               data: {
-                name: formData.name,
+                name: formData.name.trim(),
                 role: formData.role,
-                status: formData.status
+                status: formData.status,
+                company: formData.role === 'cliente' ? formData.company : undefined,
+                must_change_password: true,
               }
             }
           });
 
           if (!error && data?.user) {
-            createdOnSupabase = true;
             createdUserId = data.user.id;
           }
         } catch (supaErr) {
           console.warn('Supabase offline/unreachable, saving locally:', supaErr);
         }
 
-        const newUser = {
+        const newUser: SystemUser = {
           id: createdUserId,
-          name: formData.name,
-          email: formData.email,
+          name: formData.name.trim(),
+          email: cleanEmail,
+          password: DEFAULT_INITIAL_PASSWORD,
           role: formData.role,
-          status: formData.status
+          status: formData.status,
+          company: formData.role === 'cliente' ? formData.company : undefined,
+          mustChangePassword: true,
+          updatedAt: nowTs,
         };
-        
-        setUsers([...users, newUser as any]);
-        if (createdOnSupabase) {
-          toast.success('Usuário criado com sucesso no Supabase!');
-        } else {
-          toast.success('Usuário criado localmente com sucesso!');
-        }
+
+        const updated = [...users, newUser];
+        saveSystemUsers(updated, true);
+        setUsers(updated);
+        toast.success(`Usuário "${newUser.name}" cadastrado com a senha padrão ${DEFAULT_INITIAL_PASSWORD}! No 1º acesso o sistema solicitará a troca de senha.`);
         setShowModal(false);
       }
     } catch (err: any) {
@@ -137,12 +202,14 @@ export default function UserManager() {
       <div className="mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight">Gestão de Usuários</h1>
-          <p className="text-sm text-gray-500 mt-1">Controle de acessos e permissões do sistema.</p>
+          <p className="text-sm text-gray-500 mt-1">
+            Novos usuários recebem automaticamente a senha padrão <strong className="text-blue-700">{DEFAULT_INITIAL_PASSWORD}</strong> e alteram no primeiro acesso.
+          </p>
         </div>
         
         <button 
           onClick={handleOpenAdd}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg text-sm font-bold shadow-sm transition-colors flex items-center"
+          className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg text-sm font-bold shadow-sm transition-colors flex items-center cursor-pointer"
         >
           <UserPlus size={18} className="mr-2" />
           Novo Usuário
@@ -160,6 +227,9 @@ export default function UserManager() {
                 </th>
                 <th scope="col" className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">
                   Nível de Acesso
+                </th>
+                <th scope="col" className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">
+                  Senha / 1º Acesso
                 </th>
                 <th scope="col" className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">
                   Status
@@ -191,6 +261,19 @@ export default function UserManager() {
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
+                    {user.mustChangePassword ? (
+                      <span className="inline-flex items-center text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-md">
+                        <Key size={12} className="mr-1.5" />
+                        Padrão: <strong className="ml-1 font-black">{DEFAULT_INITIAL_PASSWORD}</strong> (Troca no 1º Acesso)
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2.5 py-1 rounded-md">
+                        <CheckCircle size={12} className="mr-1.5" />
+                        Senha Pessoal Definida
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
                     {user.status === 'ativo' ? (
                       <span className="inline-flex items-center text-xs font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-1 rounded-md">
                         <CheckCircle size={12} className="mr-1" /> Ativo
@@ -202,17 +285,25 @@ export default function UserManager() {
                     )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <div className="flex items-center justify-end space-x-3">
+                    <div className="flex items-center justify-end space-x-2">
+                      <button
+                        type="button"
+                        onClick={() => handleResetPassword(user)}
+                        className="text-amber-600 hover:text-amber-800 transition-colors bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2.5 py-1.5 rounded text-xs font-bold flex items-center cursor-pointer"
+                        title={`Redefinir senha para ${DEFAULT_INITIAL_PASSWORD} (exigir troca no próximo login)`}
+                      >
+                        <RefreshCw size={13} className="mr-1" /> Resetar p/ {DEFAULT_INITIAL_PASSWORD}
+                      </button>
                       <button 
                         onClick={() => handleOpenEdit(user)}
-                        className="text-gray-400 hover:text-blue-600 transition-colors bg-gray-50 hover:bg-blue-50 p-2 rounded"
+                        className="text-gray-400 hover:text-blue-600 transition-colors bg-gray-50 hover:bg-blue-50 p-2 rounded cursor-pointer"
                         title="Editar"
                       >
                         <Edit2 size={16} />
                       </button>
                       <button 
-                        onClick={() => handleDelete(user.id)}
-                        className="text-gray-400 hover:text-red-600 transition-colors bg-gray-50 hover:bg-red-50 p-2 rounded"
+                        onClick={() => handleDelete(String(user.id))}
+                        className="text-gray-400 hover:text-red-600 transition-colors bg-gray-50 hover:bg-red-50 p-2 rounded cursor-pointer"
                         title="Remover"
                       >
                         <Trash2 size={16} />
@@ -266,18 +357,34 @@ export default function UserManager() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">SENHA</label>
-                <div className="w-full px-3 py-2 border border-gray-200 bg-gray-50 rounded-md text-sm text-gray-500 flex items-center justify-between">
-                  <span>Padrão do sistema: <strong className="text-gray-800">123456</strong></span>
-                  <span className="text-[10px] uppercase font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">Troca no 1º Acesso</span>
+                <label className="block text-xs font-bold text-gray-500 mb-1">SENHA DE ACESSO INICIAL</label>
+                <div className="w-full px-3.5 py-2.5 border border-blue-200 bg-blue-50/60 rounded-lg text-sm text-gray-700 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <Key size={14} className="text-blue-600" />
+                    Senha Padrão Automática: <strong className="text-blue-900 font-black tracking-wider">{DEFAULT_INITIAL_PASSWORD}</strong>
+                  </span>
+                  <span className="text-[10px] uppercase font-extrabold text-blue-700 bg-white border border-blue-200 px-2 py-0.5 rounded">
+                    Troca no 1º Acesso
+                  </span>
                 </div>
+                {editingUserId && (
+                  <label className="mt-2 flex items-center gap-2 text-xs font-bold text-amber-700 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formData.resetPasswordOnEdit}
+                      onChange={e => setFormData({ ...formData, resetPasswordOnEdit: e.target.checked })}
+                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    Redefinir senha deste usuário para {DEFAULT_INITIAL_PASSWORD} e exigir troca no próximo login
+                  </label>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-gray-500 mb-1">NÍVEL DE ACESSO</label>
                   <select 
-                    value={formData.role} onChange={e => setFormData({...formData, role: e.target.value})}
+                    value={formData.role} onChange={e => setFormData({...formData, role: e.target.value as SystemUser['role']})}
                     className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm focus:ring-1 focus:ring-blue-500 bg-white font-medium" 
                   >
                     <option value="inspetor">Inspetor</option>
@@ -290,7 +397,7 @@ export default function UserManager() {
                 <div>
                   <label className="block text-xs font-bold text-gray-500 mb-1">STATUS</label>
                   <select 
-                    value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})}
+                    value={formData.status} onChange={e => setFormData({...formData, status: e.target.value as SystemUser['status']})}
                     className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm focus:ring-1 focus:ring-blue-500 bg-white font-medium" 
                   >
                     <option value="ativo">Ativo</option>
@@ -302,7 +409,9 @@ export default function UserManager() {
               {formData.role === 'cliente' && (
                 <div className="animate-[fadeIn_0.3s_ease-out]">
                   <label className="block text-xs font-bold text-orange-600 mb-1">EMPRESA DO CLIENTE</label>
-                  <select 
+                  <select
+                    value={formData.company}
+                    onChange={e => setFormData({ ...formData, company: e.target.value })}
                     className="w-full px-3 py-2 border border-orange-200 bg-orange-50 rounded-md text-sm focus:ring-1 focus:ring-orange-500 font-medium text-orange-900" 
                   >
                     <option value="">Selecione a empresa vinculada...</option>
@@ -320,12 +429,12 @@ export default function UserManager() {
               <div className="pt-4 flex justify-end space-x-3">
                 <button 
                   type="button" onClick={() => setShowModal(false)}
-                  className="px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
+                  className="px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 rounded-md transition-colors cursor-pointer"
                 >Cancelar</button>
                 <button 
                   type="submit"
                   disabled={isSaving}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md shadow-sm transition-colors disabled:opacity-50 flex items-center"
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md shadow-sm transition-colors disabled:opacity-50 flex items-center cursor-pointer"
                 >
                   {isSaving ? (
                     <><div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full mr-2"></div> Salvando...</>

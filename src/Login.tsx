@@ -1,22 +1,66 @@
 import { useState } from 'react';
-import { Moon, Sun, Mail, Lock, LogIn, Eye, EyeOff, Shield, User, ArrowRight } from 'react-feather';
+import { Moon, Sun, Mail, Lock, LogIn, Eye, EyeOff, Shield, User, ArrowRight, Key, CheckCircle } from 'react-feather';
 import logoUrl from './assets/logo.jpg';
 import logoTightUrl from './assets/logo-tight.png';
 import profluxBgUrl from './assets/proflux-bg.png';
+
+export interface PendingFirstAccessUser {
+  email: string;
+  name: string;
+  role: 'gestor' | 'inspetor' | 'cliente';
+}
 
 interface LoginProps {
   onLogin: (email: string, pass: string) => void;
   error: string;
   onSelectRole?: (role: 'gestor' | 'inspetor' | 'cliente') => void;
   isMobileApp?: boolean;
+  pendingFirstAccess?: PendingFirstAccessUser | null;
+  onConfirmNewPassword?: (newPassword: string) => void;
+  onCancelFirstAccess?: () => void;
 }
 
-const Login = ({ onLogin, error, isMobileApp = false }: LoginProps) => {
+const Login = ({
+  onLogin,
+  error,
+  isMobileApp = false,
+  pendingFirstAccess = null,
+  onConfirmNewPassword,
+  onCancelFirstAccess,
+}: LoginProps) => {
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(true);
   const [isDark, setIsDark] = useState(document.documentElement.classList.contains('dark'));
+
+  // Estados para Troca de Senha no 1º Acesso (quando entra com a senha padrão 123456)
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [passwordChangeError, setPasswordChangeError] = useState('');
+
+  const handlePasswordChangeSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordChangeError('');
+    const cleanNew = newPassword.trim();
+    const cleanConfirm = confirmNewPassword.trim();
+
+    if (cleanNew.length < 4) {
+      setPasswordChangeError('A nova senha deve ter pelo menos 4 caracteres.');
+      return;
+    }
+    if (cleanNew === '123456') {
+      setPasswordChangeError('Escolha uma senha diferente da senha padrão inicial (123456).');
+      return;
+    }
+    if (cleanNew !== cleanConfirm) {
+      setPasswordChangeError('A confirmação de senha não confere.');
+      return;
+    }
+
+    onConfirmNewPassword?.(cleanNew);
+  };
 
   const toggleDarkMode = () => {
     document.documentElement.classList.toggle('dark');
@@ -43,83 +87,169 @@ const Login = ({ onLogin, error, isMobileApp = false }: LoginProps) => {
           <div className="flex flex-col items-center mb-6">
             <img src={logoUrl} alt="D&A Inspeções" className="h-20 sm:h-24 object-contain rounded-lg" />
             <h2 className="text-lg font-bold text-slate-800 dark:text-white mt-3 text-center">
-              Portal de Acesso
+              {pendingFirstAccess ? 'Primeiro Acesso • Nova Senha' : 'Portal de Acesso'}
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 text-center mt-0.5">
-              Insira suas credenciais para acessar o aplicativo
+              {pendingFirstAccess
+                ? `Olá, ${pendingFirstAccess.name}! Altere sua senha padrão (123456) para continuar.`
+                : 'Insira suas credenciais para acessar o aplicativo'}
             </p>
           </div>
 
-          {error && (
-            <div className="mb-4 p-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 text-xs rounded-lg text-center font-medium">
-              {error}
-            </div>
-          )}
-
-          <form onSubmit={(e) => { e.preventDefault(); onLogin(email, password); }} className="space-y-4">
-            <div>
-              <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1.5 uppercase tracking-wider">
-                Usuário ou E-mail
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
-                  <Mail size={16} className="text-slate-400" />
-                </div>
-                <input
-                  type="text"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="block w-full pl-10 pr-3.5 py-2.5 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-slate-50 dark:bg-slate-800/80 text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition-all"
-                  placeholder="seu.email@exemplo.com"
-                  required
-                />
+          {pendingFirstAccess ? (
+            <form onSubmit={handlePasswordChangeSubmit} className="space-y-4">
+              <div className="p-3 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-blue-800 dark:text-blue-200 text-xs rounded-xl">
+                <p className="font-bold flex items-center gap-1.5">
+                  <Key size={14} className="text-blue-600 shrink-0" />
+                  Troca de Senha no 1º Acesso
+                </p>
+                <p className="mt-1 text-[11px] opacity-90">
+                  Você entrou com a senha padrão <strong>123456</strong>. Defina agora sua senha pessoal de acesso.
+                </p>
               </div>
-            </div>
 
-            <div>
-              <div className="flex justify-between items-center mb-1.5">
-                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">
-                  Senha
+              {passwordChangeError && (
+                <div className="p-3 bg-red-50 border border-red-200 text-red-600 text-xs rounded-lg text-center font-medium">
+                  {passwordChangeError}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1.5 uppercase tracking-wider">
+                  Nova Senha Pessoal
                 </label>
-                <a
-                  href="#"
-                  onClick={(e) => { e.preventDefault(); alert('Por favor, entre em contato com o administrador do sistema para redefinir sua senha.'); }}
-                  className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
-                >
-                  Esqueceu a senha?
-                </a>
-              </div>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
-                  <Lock size={16} className="text-slate-400" />
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+                    <Lock size={16} className="text-slate-400" />
+                  </div>
+                  <input
+                    type={showNewPassword ? 'text' : 'password'}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    className="block w-full pl-10 pr-11 py-2.5 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-slate-50 dark:bg-slate-800/80 text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition-all"
+                    placeholder="Digite sua nova senha"
+                    required
+                  />
+                  <button
+                    type="button"
+                    className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600 focus:outline-none cursor-pointer"
+                    onClick={() => setShowNewPassword(!showNewPassword)}
+                    tabIndex={-1}
+                  >
+                    {showNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
                 </div>
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="block w-full pl-10 pr-11 py-2.5 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-slate-50 dark:bg-slate-800/80 text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition-all"
-                  placeholder="Digite sua senha"
-                  required
-                />
-                <button
-                  type="button"
-                  className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 focus:outline-none cursor-pointer"
-                  onClick={() => setShowPassword(!showPassword)}
-                  tabIndex={-1}
-                >
-                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
               </div>
-            </div>
 
-            <button
-              type="submit"
-              className="w-full flex justify-center items-center py-2.5 px-4 rounded-lg text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 active:bg-blue-800 shadow-md shadow-blue-500/20 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all cursor-pointer mt-2"
-            >
-              <LogIn size={16} className="mr-2" />
-              Entrar no Aplicativo
-            </button>
-          </form>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1.5 uppercase tracking-wider">
+                  Confirmar Nova Senha
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+                    <CheckCircle size={16} className="text-slate-400" />
+                  </div>
+                  <input
+                    type={showNewPassword ? 'text' : 'password'}
+                    value={confirmNewPassword}
+                    onChange={(e) => setConfirmNewPassword(e.target.value)}
+                    className="block w-full pl-10 pr-4 py-2.5 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-slate-50 dark:bg-slate-800/80 text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition-all"
+                    placeholder="Repita sua nova senha"
+                    required
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full flex justify-center items-center py-2.5 px-4 rounded-lg text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-md shadow-emerald-500/20 transition-all cursor-pointer mt-2"
+              >
+                <CheckCircle size={16} className="mr-2" />
+                Salvar Nova Senha e Entrar
+              </button>
+
+              <button
+                type="button"
+                onClick={onCancelFirstAccess}
+                className="w-full py-2 text-xs font-bold text-slate-500 hover:text-slate-700 text-center cursor-pointer"
+              >
+                Voltar para o Login
+              </button>
+            </form>
+          ) : (
+            <>
+              {error && (
+                <div className="mb-4 p-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 text-xs rounded-lg text-center font-medium">
+                  {error}
+                </div>
+              )}
+
+              <form onSubmit={(e) => { e.preventDefault(); onLogin(email, password); }} className="space-y-4">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1.5 uppercase tracking-wider">
+                    Usuário ou E-mail
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+                      <Mail size={16} className="text-slate-400" />
+                    </div>
+                    <input
+                      type="text"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className="block w-full pl-10 pr-3.5 py-2.5 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-slate-50 dark:bg-slate-800/80 text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition-all"
+                      placeholder="seu.email@exemplo.com"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex justify-between items-center mb-1.5">
+                    <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">
+                      Senha
+                    </label>
+                    <a
+                      href="#"
+                      onClick={(e) => { e.preventDefault(); alert('No primeiro acesso utilize a senha padrão 123456. Caso precise redefinir, peça ao Gestor na tela Gestão de Usuários.'); }}
+                      className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                    >
+                      Esqueceu a senha?
+                    </a>
+                  </div>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+                      <Lock size={16} className="text-slate-400" />
+                    </div>
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="block w-full pl-10 pr-11 py-2.5 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-slate-50 dark:bg-slate-800/80 text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition-all"
+                      placeholder="Digite sua senha (1º acesso: 123456)"
+                      required
+                    />
+                    <button
+                      type="button"
+                      className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 focus:outline-none cursor-pointer"
+                      onClick={() => setShowPassword(!showPassword)}
+                      tabIndex={-1}
+                    >
+                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full flex justify-center items-center py-2.5 px-4 rounded-lg text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 active:bg-blue-800 shadow-md shadow-blue-500/20 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all cursor-pointer mt-2"
+                >
+                  <LogIn size={16} className="mr-2" />
+                  Entrar no Aplicativo
+                </button>
+              </form>
+            </>
+          )}
 
           <div className="mt-7 pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-center text-[11px] text-slate-400 dark:text-slate-500 gap-1.5">
             <Shield size={14} className="text-emerald-500" />
@@ -312,122 +442,211 @@ const Login = ({ onLogin, error, isMobileApp = false }: LoginProps) => {
         </div>
 
         {/* Painel Direito: Formulário de Acesso D&A Inspeções */}
-        <div className="w-[54%] h-full bg-white rounded-[16px] px-10 py-7 flex flex-col justify-between shadow-xl">
+        <div className="w-[54%] h-full bg-white rounded-[16px] px-10 py-6 flex flex-col justify-between shadow-xl overflow-y-auto">
           <div>
             {/* Logo D&A Inspeções Centralizada e Maior */}
-            <div className="flex justify-center mb-4">
+            <div className="flex justify-center mb-3">
               <img
                 src={logoTightUrl}
                 alt="D&A Inspeções"
-                className="h-20 sm:h-24 object-contain"
+                className="h-18 sm:h-22 object-contain"
               />
             </div>
 
-            {/* Saudação */}
-            <div className="mb-5">
-              <h1 className="text-[28px] font-extrabold text-[#0b192c] tracking-tight leading-tight">
-                Bem-vindo de volta!
-              </h1>
-            </div>
-
-            {/* Mensagem de Erro */}
-            {error && (
-              <div className="mb-3 p-2.5 bg-red-50 border border-red-200 text-red-600 text-xs rounded-xl text-center font-medium">
-                {error}
-              </div>
-            )}
-
-            {/* Formulário */}
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                onLogin(email, password);
-              }}
-              className="space-y-3.5"
-            >
-              {/* Campo Usuário */}
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">
-                  Usuário
-                </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
-                    <User size={15} className="text-slate-400" />
-                  </div>
-                  <input
-                    type="text"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="block w-full pl-10 pr-4 py-2.5 bg-[#eef3f9] border border-[#d5e0ee] rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0c3266]/20 focus:border-[#0c3266] focus:bg-white transition-all"
-                    placeholder="matheusmoura"
-                    required
-                  />
+            {pendingFirstAccess ? (
+              <div className="animate-[fadeIn_0.2s_ease-out]">
+                <div className="mb-3">
+                  <span className="inline-flex items-center gap-1 text-[10px] font-extrabold uppercase tracking-wider bg-blue-50 text-blue-700 border border-blue-200 px-2.5 py-0.5 rounded-full mb-1">
+                    <Key size={11} /> 1º Acesso • Troca de Senha Obrigatória
+                  </span>
+                  <h1 className="text-[22px] font-extrabold text-[#0b192c] tracking-tight leading-tight">
+                    Olá, {pendingFirstAccess.name}!
+                  </h1>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Você entrou com a senha padrão <strong>123456</strong>. Defina agora sua senha pessoal.
+                  </p>
                 </div>
-              </div>
 
-              {/* Campo Senha */}
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">
-                  Senha
-                </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
-                    <Lock size={15} className="text-slate-400" />
+                {passwordChangeError && (
+                  <div className="mb-3 p-2.5 bg-red-50 border border-red-200 text-red-600 text-xs rounded-xl text-center font-medium">
+                    {passwordChangeError}
                   </div>
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="block w-full pl-10 pr-11 py-2.5 bg-[#eef3f9] border border-[#d5e0ee] rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0c3266]/20 focus:border-[#0c3266] focus:bg-white transition-all"
-                    placeholder="••••••••••"
-                    required
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600 focus:outline-none cursor-pointer"
-                    tabIndex={-1}
-                  >
-                    {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
-                  </button>
-                </div>
+                )}
+
+                <form onSubmit={handlePasswordChangeSubmit} className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 mb-1">
+                      Nova Senha Pessoal
+                    </label>
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+                        <Lock size={15} className="text-slate-400" />
+                      </div>
+                      <input
+                        type={showNewPassword ? 'text' : 'password'}
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        className="block w-full pl-10 pr-11 py-2.5 bg-[#eef3f9] border border-[#d5e0ee] rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0c3266]/20 focus:border-[#0c3266] focus:bg-white transition-all"
+                        placeholder="Digite sua nova senha"
+                        required
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowNewPassword(!showNewPassword)}
+                        className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600 focus:outline-none cursor-pointer"
+                        tabIndex={-1}
+                      >
+                        {showNewPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 mb-1">
+                      Confirmar Nova Senha
+                    </label>
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+                        <CheckCircle size={15} className="text-slate-400" />
+                      </div>
+                      <input
+                        type={showNewPassword ? 'text' : 'password'}
+                        value={confirmNewPassword}
+                        onChange={(e) => setConfirmNewPassword(e.target.value)}
+                        className="block w-full pl-10 pr-4 py-2.5 bg-[#eef3f9] border border-[#d5e0ee] rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0c3266]/20 focus:border-[#0c3266] focus:bg-white transition-all"
+                        placeholder="Confirme sua nova senha"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className="pt-1 flex flex-col gap-1.5">
+                    <button
+                      type="submit"
+                      className="w-full py-2.5 px-6 rounded-xl text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] shadow-lg shadow-emerald-600/25 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <CheckCircle size={16} />
+                      <span>Salvar Nova Senha e Acessar</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onCancelFirstAccess}
+                      className="w-full py-1 text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
+                    >
+                      Voltar para o Login
+                    </button>
+                  </div>
+                </form>
               </div>
+            ) : (
+              <>
+                {/* Saudação */}
+                <div className="mb-4">
+                  <h1 className="text-[28px] font-extrabold text-[#0b192c] tracking-tight leading-tight">
+                    Bem-vindo de volta!
+                  </h1>
+                </div>
 
-              {/* Lembrar-me & Esqueci minha senha */}
-              <div className="flex items-center justify-between pt-0.5">
-                <label className="inline-flex items-center gap-2 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={rememberMe}
-                    onChange={(e) => setRememberMe(e.target.checked)}
-                    className="w-4 h-4 rounded border-slate-300 text-[#1a66cc] accent-[#1a66cc] focus:ring-[#1a66cc]"
-                  />
-                  <span className="text-xs text-slate-600">Lembrar-me</span>
-                </label>
+                {/* Mensagem de Erro */}
+                {error && (
+                  <div className="mb-3 p-2.5 bg-red-50 border border-red-200 text-red-600 text-xs rounded-xl text-center font-medium">
+                    {error}
+                  </div>
+                )}
 
-                <a
-                  href="#"
-                  onClick={(e) => {
+                {/* Formulário */}
+                <form
+                  onSubmit={(e) => {
                     e.preventDefault();
-                    alert('Por favor, entre em contato com o suporte PROFLUX / administrador do sistema para redefinir sua senha.');
+                    onLogin(email, password);
                   }}
-                  className="text-xs font-semibold text-[#185adb] hover:text-[#0d3b94] hover:underline"
+                  className="space-y-3.5"
                 >
-                  Esqueci minha senha
-                </a>
-              </div>
+                  {/* Campo Usuário */}
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">
+                      Usuário
+                    </label>
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+                        <User size={15} className="text-slate-400" />
+                      </div>
+                      <input
+                        type="text"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        className="block w-full pl-10 pr-4 py-2.5 bg-[#eef3f9] border border-[#d5e0ee] rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0c3266]/20 focus:border-[#0c3266] focus:bg-white transition-all"
+                        placeholder="matheusmoura"
+                        required
+                      />
+                    </div>
+                  </div>
 
-              {/* Botão Entrar */}
-              <div className="pt-1.5">
-                <button
-                  type="submit"
-                  className="w-full py-3 px-6 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-[#0e3975] via-[#092752] to-[#051633] hover:from-[#13468f] hover:via-[#0c3268] hover:to-[#071f45] active:scale-[0.99] shadow-lg shadow-[#092752]/30 transition-all flex items-center justify-center relative cursor-pointer"
-                >
-                  <span>Entrar</span>
-                  <ArrowRight size={17} className="absolute right-5 text-white/90" />
-                </button>
-              </div>
-            </form>
+                  {/* Campo Senha */}
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">
+                      Senha
+                    </label>
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+                        <Lock size={15} className="text-slate-400" />
+                      </div>
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        className="block w-full pl-10 pr-11 py-2.5 bg-[#eef3f9] border border-[#d5e0ee] rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0c3266]/20 focus:border-[#0c3266] focus:bg-white transition-all"
+                        placeholder="•••••••••• (1º acesso: 123456)"
+                        required
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600 focus:outline-none cursor-pointer"
+                        tabIndex={-1}
+                      >
+                        {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Lembrar-me & Esqueci minha senha */}
+                  <div className="flex items-center justify-between pt-0.5">
+                    <label className="inline-flex items-center gap-2 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={rememberMe}
+                        onChange={(e) => setRememberMe(e.target.checked)}
+                        className="w-4 h-4 rounded border-slate-300 text-[#1a66cc] accent-[#1a66cc] focus:ring-[#1a66cc]"
+                      />
+                      <span className="text-xs text-slate-600">Lembrar-me</span>
+                    </label>
+
+                    <a
+                      href="#"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        alert('No 1º acesso utilize a senha padrão 123456. Caso precise redefinir, solicite ao Gestor em Gestão de Usuários.');
+                      }}
+                      className="text-xs font-semibold text-[#185adb] hover:text-[#0d3b94] hover:underline"
+                    >
+                      Esqueci minha senha
+                    </a>
+                  </div>
+
+                  {/* Botão Entrar */}
+                  <div className="pt-1.5">
+                    <button
+                      type="submit"
+                      className="w-full py-3 px-6 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-[#0e3975] via-[#092752] to-[#051633] hover:from-[#13468f] hover:via-[#0c3268] hover:to-[#071f45] active:scale-[0.99] shadow-lg shadow-[#092752]/30 transition-all flex items-center justify-center relative cursor-pointer"
+                    >
+                      <span>Entrar</span>
+                      <ArrowRight size={17} className="absolute right-5 text-white/90" />
+                    </button>
+                  </div>
+                </form>
+              </>
+            )}
           </div>
 
           {/* Rodapé com Direitos Autorais e Link Clicável */}

@@ -167,6 +167,7 @@ export interface FormResponse {
   formName: string;
   category?: string;
   inspectorName: string;
+  inspectorSignature?: string;
   submittedAt: string;
   answers: Record<string, any>;
   fieldsSnapshot?: FormField[];
@@ -180,6 +181,9 @@ export interface FormResponse {
 
 export const RESPONSES_CHANGE_EVENT = 'da_form_responses_changed';
 const RESPONSES_STORAGE_KEY = 'da_inspecoes_form_responses_v1';
+
+let memoryResponses: FormResponse[] | null = null;
+let memoryExpenses: InspectorExpense[] | null = null;
 
 function getDefaultFormResponses(): FormResponse[] {
   const defaultForms = getDefaultForms();
@@ -221,17 +225,23 @@ function getDefaultFormResponses(): FormResponse[] {
 }
 
 export function getFormResponses(formId?: string): FormResponse[] {
+  if (memoryResponses && memoryResponses.length > 0) {
+    if (formId) return memoryResponses.filter(r => r.formId === formId);
+    return memoryResponses;
+  }
   try {
     const stored = localStorage.getItem(RESPONSES_STORAGE_KEY);
     if (stored) {
       const all: FormResponse[] = JSON.parse(stored);
       if (all.length > 0) {
+        memoryResponses = all;
         if (formId) return all.filter(r => r.formId === formId);
         return all;
       }
     }
   } catch { /* ignore */ }
   const defaults = getDefaultFormResponses();
+  memoryResponses = defaults;
   try {
     localStorage.setItem(RESPONSES_STORAGE_KEY, JSON.stringify(defaults));
   } catch { /* ignore */ }
@@ -240,13 +250,21 @@ export function getFormResponses(formId?: string): FormResponse[] {
 }
 
 export function saveFormResponse(response: FormResponse): void {
+  const existing = getFormResponses();
+  const updated = [response, ...existing.filter(r => r.id !== response.id)];
+  memoryResponses = updated;
+
   try {
-    const existing = getFormResponses();
-    const updated = [response, ...existing.filter(r => r.id !== response.id)];
     localStorage.setItem(RESPONSES_STORAGE_KEY, JSON.stringify(updated));
-    window.dispatchEvent(new Event(RESPONSES_CHANGE_EVENT));
-    pushSyncToServer({ responses: updated });
-  } catch { /* ignore */ }
+  } catch {
+    // Caso o localStorage exceda a cota com muitas fotos, salva os mais recentes
+    try {
+      localStorage.setItem(RESPONSES_STORAGE_KEY, JSON.stringify(updated.slice(0, 15)));
+    } catch { /* ignore */ }
+  }
+
+  window.dispatchEvent(new Event(RESPONSES_CHANGE_EVENT));
+  pushSyncToServer({ responses: updated });
 }
 
 // ============================================================
@@ -270,21 +288,247 @@ export const EXPENSES_CHANGE_EVENT = 'da_expenses_changed';
 const EXPENSES_STORAGE_KEY = 'da_inspecoes_expenses_v1';
 
 export function getExpenses(): InspectorExpense[] {
+  if (memoryExpenses) return memoryExpenses;
   try {
     const stored = localStorage.getItem(EXPENSES_STORAGE_KEY);
-    if (stored) return JSON.parse(stored) as InspectorExpense[];
+    if (stored) {
+      const parsed = JSON.parse(stored) as InspectorExpense[];
+      memoryExpenses = parsed;
+      return parsed;
+    }
   } catch { /* ignore */ }
   return [];
 }
 
 export function saveExpense(expense: InspectorExpense): void {
+  const existing = getExpenses();
+  const updated = [expense, ...existing.filter(e => e.id !== expense.id)];
+  memoryExpenses = updated;
   try {
-    const existing = getExpenses();
-    const updated = [expense, ...existing.filter(e => e.id !== expense.id)];
     localStorage.setItem(EXPENSES_STORAGE_KEY, JSON.stringify(updated));
-    window.dispatchEvent(new Event(EXPENSES_CHANGE_EVENT));
-    pushSyncToServer({ expenses: updated });
-  } catch { /* ignore */ }
+  } catch {
+    try {
+      localStorage.setItem(EXPENSES_STORAGE_KEY, JSON.stringify(updated.slice(0, 20)));
+    } catch { /* ignore */ }
+  }
+  window.dispatchEvent(new Event(EXPENSES_CHANGE_EVENT));
+  pushSyncToServer({ expenses: updated });
+}
+
+// -------- Usuários Cadastrados no Sistema (com Senha Padrão 123456 e Troca no 1º Acesso) --------
+export const DEFAULT_INITIAL_PASSWORD = '123456';
+export const USERS_CHANGE_EVENT = 'da_users_changed';
+const USERS_STORAGE_KEY = 'da_inspecoes_users_v2';
+
+export interface SystemUser {
+  id: string;
+  name: string;
+  email: string;
+  password: string;
+  role: 'gestor' | 'financeiro' | 'inspetor' | 'cliente';
+  status: 'ativo' | 'inativo';
+  company?: string;
+  mustChangePassword: boolean;
+  passwordChangedAt?: string;
+  updatedAt?: number;
+}
+
+const DEFAULT_SYSTEM_USERS: SystemUser[] = [
+  {
+    id: 'usr_1',
+    name: 'Matheus Stanley',
+    email: 'matheus.stanley12@gmail.com',
+    password: DEFAULT_INITIAL_PASSWORD,
+    role: 'gestor',
+    status: 'ativo',
+    mustChangePassword: false,
+    updatedAt: 0,
+  },
+  {
+    id: 'usr_admin',
+    name: 'Administrador D&A',
+    email: 'admin@deainspecoes.com.br',
+    password: DEFAULT_INITIAL_PASSWORD,
+    role: 'gestor',
+    status: 'ativo',
+    mustChangePassword: false,
+    updatedAt: 0,
+  },
+  {
+    id: 'usr_2',
+    name: 'Teste Cliente',
+    email: 'testecliente@gmail.com',
+    password: DEFAULT_INITIAL_PASSWORD,
+    role: 'cliente',
+    status: 'ativo',
+    company: 'CORACORTHE',
+    mustChangePassword: true,
+    updatedAt: 0,
+  },
+  {
+    id: 'usr_3',
+    name: 'João Silva (Inspetor)',
+    email: 'testeinspetor@gmail.com',
+    password: DEFAULT_INITIAL_PASSWORD,
+    role: 'inspetor',
+    status: 'ativo',
+    mustChangePassword: true,
+    updatedAt: 0,
+  },
+];
+
+let memoryUsers: SystemUser[] | null = null;
+
+function getUserRank(u: SystemUser): number {
+  if (typeof u.updatedAt === 'number' && u.updatedAt > 0) return u.updatedAt;
+  if (u.passwordChangedAt) {
+    const parsed = Date.parse(u.passwordChangedAt);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  if (u.mustChangePassword === false) return 1;
+  return 0;
+}
+
+export function mergeSystemUsersList(existing: SystemUser[] = [], incoming: SystemUser[] = []): SystemUser[] {
+  const map = new Map<string, SystemUser>();
+  const getKey = (u: SystemUser) => (u?.email ? u.email.trim().toLowerCase() : String(u?.id || ''));
+
+  for (const u of existing) {
+    if (!u) continue;
+    const key = getKey(u);
+    if (key) map.set(key, u);
+  }
+
+  for (const u of incoming) {
+    if (!u) continue;
+    const key = getKey(u);
+    if (!key) continue;
+    const prev = map.get(key);
+    if (!prev) {
+      map.set(key, u);
+    } else if (getUserRank(u) >= getUserRank(prev)) {
+      map.set(key, u);
+    }
+  }
+
+  return Array.from(map.values());
+}
+
+export function getSystemUsers(): SystemUser[] {
+  if (memoryUsers && memoryUsers.length > 0) {
+    return memoryUsers;
+  }
+  try {
+    const raw = localStorage.getItem(USERS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const merged = mergeSystemUsersList(DEFAULT_SYSTEM_USERS, parsed);
+        memoryUsers = merged;
+        return merged;
+      }
+    }
+    localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(DEFAULT_SYSTEM_USERS));
+  } catch {
+    // ignore
+  }
+  memoryUsers = DEFAULT_SYSTEM_USERS;
+  return DEFAULT_SYSTEM_USERS;
+}
+
+export function saveSystemUsers(users: SystemUser[], replaceOnServer = true, deletedUserIds?: string[]): void {
+  memoryUsers = users;
+  try {
+    localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users));
+  } catch {
+    // ignore
+  }
+  window.dispatchEvent(new Event(USERS_CHANGE_EVENT));
+  pushSyncToServer({ users, replaceUsers: replaceOnServer, deletedUserIds });
+}
+
+export function findSystemUserByEmail(emailOrUsername: string): SystemUser | undefined {
+  const clean = emailOrUsername.trim().toLowerCase();
+  if (!clean) return undefined;
+  return getSystemUsers().find(u => {
+    const uEmail = u.email.trim().toLowerCase();
+    const uLogin = uEmail.split('@')[0];
+    return uEmail === clean || uLogin === clean;
+  });
+}
+
+export function updateUserPassword(email: string, newPassword: string): SystemUser | null {
+  const clean = email.trim().toLowerCase();
+  const current = getSystemUsers();
+  const nowIso = new Date().toISOString();
+  const nowTs = Date.now();
+  let updatedUser: SystemUser | null = null;
+
+  const exists = current.some(u => {
+    const uEmail = u.email.trim().toLowerCase();
+    return uEmail === clean || uEmail.split('@')[0] === clean;
+  });
+  let nextUsers: SystemUser[];
+
+  if (exists) {
+    nextUsers = current.map(u => {
+      const uEmail = u.email.trim().toLowerCase();
+      if (uEmail === clean || uEmail.split('@')[0] === clean) {
+        updatedUser = {
+          ...u,
+          password: newPassword,
+          mustChangePassword: false,
+          passwordChangedAt: nowIso,
+          updatedAt: nowTs,
+        };
+        return updatedUser;
+      }
+      return u;
+    });
+  } else {
+    const inferredRole: SystemUser['role'] = clean.includes('inspetor')
+      ? 'inspetor'
+      : clean.includes('cliente')
+      ? 'cliente'
+      : 'gestor';
+    const localName = clean.split('@')[0].replace(/[._-]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) || 'Usuário D&A';
+    updatedUser = {
+      id: 'usr_' + nowTs,
+      name: localName,
+      email: email.trim(),
+      password: newPassword,
+      role: inferredRole,
+      status: 'ativo',
+      mustChangePassword: false,
+      passwordChangedAt: nowIso,
+      updatedAt: nowTs,
+    };
+    nextUsers = [...current, updatedUser];
+  }
+
+  saveSystemUsers(nextUsers, true);
+  return updatedUser;
+}
+
+export function resetUserPasswordToDefault(userId: string): SystemUser | null {
+  const current = getSystemUsers();
+  const nowTs = Date.now();
+  let resetTarget: SystemUser | null = null;
+  const nextUsers = current.map(u => {
+    if (String(u.id) === String(userId)) {
+      resetTarget = {
+        ...u,
+        password: DEFAULT_INITIAL_PASSWORD,
+        mustChangePassword: true,
+        passwordChangedAt: undefined,
+        updatedAt: nowTs,
+      };
+      return resetTarget;
+    }
+    return u;
+  });
+  saveSystemUsers(nextUsers, true);
+  return resetTarget;
 }
 
 // ============================================================
@@ -294,6 +538,7 @@ const DEFAULT_SERVER_URLS = [
   typeof window !== 'undefined' && window.location.origin.startsWith('http') && !window.location.origin.includes('localhost')
     ? `${window.location.origin}/api/sync`
     : null,
+  'http://10.10.131.136:5173/api/sync',
   'http://10.10.131.94:5173/api/sync',
   'http://localhost:5173/api/sync',
 ].filter(Boolean) as string[];
@@ -326,6 +571,9 @@ export async function pushSyncToServer(payload: {
   replaceForms?: boolean;
   responses?: FormResponse[];
   expenses?: InspectorExpense[];
+  users?: SystemUser[];
+  replaceUsers?: boolean;
+  deletedUserIds?: string[];
 }): Promise<boolean> {
   const endpoints = getCandidateSyncEndpoints();
   for (const url of endpoints) {
@@ -362,8 +610,17 @@ export async function syncFromServer(): Promise<boolean> {
       if (res.ok) {
         const data = await res.json();
         applyServerSyncData(data);
-        // Se o servidor ainda estiver vazio mas este dispositivo tiver dados locais, envia ao servidor
-        if ((!data.forms || data.forms.length === 0) && getForms().length > 0) {
+        // Se o servidor ainda estiver vazio ou se este dispositivo tiver usuários modificados ainda não sincronizados
+        const localUsers = getSystemUsers();
+        const serverUsers: SystemUser[] = Array.isArray(data.users) ? data.users : [];
+        const hasNewerLocalUser = localUsers.some(lu => {
+          const luRank = getUserRank(lu);
+          if (luRank <= 0) return false;
+          const su = serverUsers.find(s => s.email?.trim().toLowerCase() === lu.email?.trim().toLowerCase());
+          return !su || luRank > getUserRank(su);
+        });
+
+        if (((!data.forms || data.forms.length === 0) && getForms().length > 0) || hasNewerLocalUser || serverUsers.length === 0) {
           await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -371,6 +628,7 @@ export async function syncFromServer(): Promise<boolean> {
               forms: getForms(),
               responses: getFormResponses(),
               expenses: getExpenses(),
+              users: localUsers,
             }),
           });
         }
@@ -395,6 +653,22 @@ function applyServerSyncData(data: any): void {
     }
   }
 
+  if (Array.isArray(data.users) && data.users.length > 0) {
+    const currentLocal = memoryUsers || DEFAULT_SYSTEM_USERS;
+    const mergedUsers = mergeSystemUsersList(currentLocal, data.users);
+    memoryUsers = mergedUsers;
+    try {
+      const currentStr = localStorage.getItem(USERS_STORAGE_KEY);
+      const nextStr = JSON.stringify(mergedUsers);
+      if (currentStr !== nextStr) {
+        localStorage.setItem(USERS_STORAGE_KEY, nextStr);
+        window.dispatchEvent(new Event(USERS_CHANGE_EVENT));
+      }
+    } catch {
+      window.dispatchEvent(new Event(USERS_CHANGE_EVENT));
+    }
+  }
+
   if (Array.isArray(data.responses)) {
     const localResponses = getFormResponses();
     const map = new Map<string, FormResponse>();
@@ -403,10 +677,18 @@ function applyServerSyncData(data: any): void {
     const merged = Array.from(map.values()).sort(
       (a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime()
     );
-    const currentStr = localStorage.getItem(RESPONSES_STORAGE_KEY);
-    const nextStr = JSON.stringify(merged);
-    if (currentStr !== nextStr) {
-      localStorage.setItem(RESPONSES_STORAGE_KEY, nextStr);
+    const prevCount = memoryResponses ? memoryResponses.length : 0;
+    memoryResponses = merged;
+    try {
+      const currentStr = localStorage.getItem(RESPONSES_STORAGE_KEY);
+      const nextStr = JSON.stringify(merged);
+      if (currentStr !== nextStr) {
+        localStorage.setItem(RESPONSES_STORAGE_KEY, nextStr);
+        window.dispatchEvent(new Event(RESPONSES_CHANGE_EVENT));
+      } else if (merged.length !== prevCount) {
+        window.dispatchEvent(new Event(RESPONSES_CHANGE_EVENT));
+      }
+    } catch {
       window.dispatchEvent(new Event(RESPONSES_CHANGE_EVENT));
     }
   }
@@ -419,10 +701,18 @@ function applyServerSyncData(data: any): void {
     const merged = Array.from(map.values()).sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
-    const currentStr = localStorage.getItem(EXPENSES_STORAGE_KEY);
-    const nextStr = JSON.stringify(merged);
-    if (currentStr !== nextStr) {
-      localStorage.setItem(EXPENSES_STORAGE_KEY, nextStr);
+    const prevCount = memoryExpenses ? memoryExpenses.length : 0;
+    memoryExpenses = merged;
+    try {
+      const currentStr = localStorage.getItem(EXPENSES_STORAGE_KEY);
+      const nextStr = JSON.stringify(merged);
+      if (currentStr !== nextStr) {
+        localStorage.setItem(EXPENSES_STORAGE_KEY, nextStr);
+        window.dispatchEvent(new Event(EXPENSES_CHANGE_EVENT));
+      } else if (merged.length !== prevCount) {
+        window.dispatchEvent(new Event(EXPENSES_CHANGE_EVENT));
+      }
+    } catch {
       window.dispatchEvent(new Event(EXPENSES_CHANGE_EVENT));
     }
   }
@@ -434,6 +724,7 @@ if (typeof window !== 'undefined') {
     if (e.key === STORAGE_KEY) window.dispatchEvent(new Event(FORMS_CHANGE_EVENT));
     if (e.key === RESPONSES_STORAGE_KEY) window.dispatchEvent(new Event(RESPONSES_CHANGE_EVENT));
     if (e.key === EXPENSES_STORAGE_KEY) window.dispatchEvent(new Event(EXPENSES_CHANGE_EVENT));
+    if (e.key === USERS_STORAGE_KEY) window.dispatchEvent(new Event(USERS_CHANGE_EVENT));
   });
 
   // Sincronizar a cada 3 segundos

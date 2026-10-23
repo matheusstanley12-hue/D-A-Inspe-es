@@ -12,7 +12,7 @@ function readSyncData() {
       return JSON.parse(fs.readFileSync(SYNC_FILE, 'utf-8'))
     }
   } catch { /* ignore */ }
-  return { forms: null, responses: [], expenses: [], orders: [], updatedAt: 0 }
+  return { forms: null, responses: [], expenses: [], orders: [], users: null, updatedAt: 0 }
 }
 
 function writeSyncData(data: any) {
@@ -29,6 +29,46 @@ function mergeById(existing: any[] = [], incoming: any[] = []) {
   for (const item of incoming) {
     if (item && item.id) map.set(String(item.id), item)
   }
+  return Array.from(map.values())
+}
+
+function mergeUsers(existing: any[] = [], incoming: any[] = [], deletedIds: string[] = []) {
+  const deletedSet = new Set((deletedIds || []).map(id => String(id)))
+  const map = new Map<string, any>()
+
+  const getKey = (u: any) => (u?.email ? String(u.email).trim().toLowerCase() : String(u?.id || ''))
+  const getRank = (u: any) => {
+    if (typeof u?.updatedAt === 'number' && u.updatedAt > 0) return u.updatedAt
+    if (u?.passwordChangedAt) {
+      const parsed = Date.parse(u.passwordChangedAt)
+      if (!Number.isNaN(parsed)) return parsed
+    }
+    if (u?.mustChangePassword === false) return 1
+    return 0
+  }
+
+  for (const u of existing) {
+    if (!u || deletedSet.has(String(u.id))) continue
+    const key = getKey(u)
+    if (key) map.set(key, u)
+  }
+
+  for (const u of incoming) {
+    if (!u || deletedSet.has(String(u.id))) continue
+    const key = getKey(u)
+    if (!key) continue
+    const prev = map.get(key)
+    if (!prev) {
+      map.set(key, u)
+    } else {
+      const prevRank = getRank(prev)
+      const nextRank = getRank(u)
+      if (nextRank >= prevRank) {
+        map.set(key, u)
+      }
+    }
+  }
+
   return Array.from(map.values())
 }
 
@@ -79,6 +119,13 @@ export default defineConfig({
                 }
                 if (Array.isArray(payload.orders)) {
                   current.orders = mergeById(current.orders || [], payload.orders)
+                }
+                if (Array.isArray(payload.users)) {
+                  current.users = mergeUsers(
+                    current.users || [],
+                    payload.users,
+                    Array.isArray(payload.deletedUserIds) ? payload.deletedUserIds : []
+                  )
                 }
                 current.updatedAt = Date.now()
                 writeSyncData(current)
