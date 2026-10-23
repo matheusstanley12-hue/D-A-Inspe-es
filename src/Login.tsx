@@ -211,7 +211,7 @@ const Login = ({
                     </label>
                     <a
                       href="#"
-                      onClick={(e) => { e.preventDefault(); alert('No primeiro acesso utilize a senha padrão 123456. Caso precise redefinir, peça ao Gestor na tela Gestão de Usuários.'); }}
+                      onClick={(e) => { e.preventDefault(); alert('Para redefinir sua senha, entre em contato com o administrador do sistema.'); }}
                       className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
                     >
                       Esqueceu a senha?
@@ -226,7 +226,7 @@ const Login = ({
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       className="block w-full pl-10 pr-11 py-2.5 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-slate-50 dark:bg-slate-800/80 text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition-all"
-                      placeholder="Digite sua senha (1º acesso: 123456)"
+                      placeholder="Digite sua senha"
                       required
                     />
                     <button
@@ -565,7 +565,7 @@ const Login = ({
                   {/* Campo Usuário */}
                   <div>
                     <label className="block text-xs font-medium text-slate-600 mb-1">
-                      Usuário
+                      E-mail ou Usuário
                     </label>
                     <div className="relative">
                       <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
@@ -576,7 +576,7 @@ const Login = ({
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
                         className="block w-full pl-10 pr-4 py-2.5 bg-[#eef3f9] border border-[#d5e0ee] rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0c3266]/20 focus:border-[#0c3266] focus:bg-white transition-all"
-                        placeholder="matheusmoura"
+                        placeholder="Digite seu e-mail ou usuário"
                         required
                       />
                     </div>
@@ -596,7 +596,7 @@ const Login = ({
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                         className="block w-full pl-10 pr-11 py-2.5 bg-[#eef3f9] border border-[#d5e0ee] rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0c3266]/20 focus:border-[#0c3266] focus:bg-white transition-all"
-                        placeholder="•••••••••• (1º acesso: 123456)"
+                        placeholder="Digite sua senha"
                         required
                       />
                       <button
@@ -626,7 +626,7 @@ const Login = ({
                       href="#"
                       onClick={(e) => {
                         e.preventDefault();
-                        alert('No 1º acesso utilize a senha padrão 123456. Caso precise redefinir, solicite ao Gestor em Gestão de Usuários.');
+                        alert('Para redefinir sua senha, entre em contato com o administrador do sistema.');
                       }}
                       className="text-xs font-semibold text-[#185adb] hover:text-[#0d3b94] hover:underline"
                     >
