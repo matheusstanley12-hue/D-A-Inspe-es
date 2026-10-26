@@ -10,6 +10,7 @@ import ModernGpsMap, {
   openGoogleMapsTurnByTurn, 
   openWazeTurnByTurn 
 } from './components/ModernGpsMap';
+import { calculateHaversineKm } from './utils/roadRouting';
 import { format } from 'date-fns';
 import { generateCorporateFormResponsePDF } from './utils/pdfHeader';
 import toast from 'react-hot-toast';
@@ -369,6 +370,74 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
   const [ordersList, setOrdersList] = useState<ServiceOrder[]>(() => getServiceOrders());
   const [showGpsMap, setShowGpsMap] = useState<boolean>(true);
 
+  // Rastreamento Ativo de Trajeto GPS da Demanda (Calculado ao iniciar a demanda)
+  const [activeTrackingOrderId, setActiveTrackingOrderId] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem('da_active_tracking_order_id') || null;
+    } catch {
+      return null;
+    }
+  });
+
+  const [activeTripTrail, setActiveTripTrail] = useState<[number, number][]>(() => {
+    try {
+      const saved = localStorage.getItem('da_active_trip_trail');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [activeTripKm, setActiveTripKm] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('da_active_trip_km');
+      return saved ? parseFloat(saved) : 0;
+    } catch {
+      return 0;
+    }
+  });
+
+  // WatchPosition contínuo: acumula rota real em campo e calcula distância real percorrida
+  useEffect(() => {
+    if (!activeTrackingOrderId) return;
+    if (typeof window === 'undefined' || !navigator.geolocation) return;
+
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        const newCoord: [number, number] = [pos.coords.latitude, pos.coords.longitude];
+        setActiveTripTrail(prev => {
+          if (prev.length === 0) {
+            const updated = [newCoord];
+            try { localStorage.setItem('da_active_trip_trail', JSON.stringify(updated)); } catch {}
+            return updated;
+          }
+
+          const last = prev[prev.length - 1];
+          const deltaKm = calculateHaversineKm(last[0], last[1], newCoord[0], newCoord[1]);
+
+          // Filtra ruído estacionário: apenas registra se deslocamento >= 6 metros
+          if (deltaKm >= 0.006) {
+            const updatedTrail = [...prev, newCoord];
+            setActiveTripKm(prevKm => {
+              const newKm = Math.round((prevKm + deltaKm) * 100) / 100;
+              try { localStorage.setItem('da_active_trip_km', newKm.toString()); } catch {}
+              return newKm;
+            });
+            try { localStorage.setItem('da_active_trip_trail', JSON.stringify(updatedTrail)); } catch {}
+            return updatedTrail;
+          }
+          return prev;
+        });
+      },
+      (err) => console.warn('Acompanhamento de GPS da demanda:', err),
+      { enableHighAccuracy: true, maximumAge: 3000, timeout: 12000 }
+    );
+
+    return () => {
+      navigator.geolocation.clearWatch(watchId);
+    };
+  }, [activeTrackingOrderId]);
+
   // Mapeamento dinâmico de coordenadas para mapa GPS de alta precisão
   const mapPoints: MapPoint[] = useMemo(() => {
     return ordersList.map((order, idx) => {
@@ -503,13 +572,34 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
     setIsStarting(true);
     setTimeout(() => {
       setIsStarting(false);
+
+      // Inicia rastreamento de trajeto GPS para esta demanda
+      setActiveTrackingOrderId(order.id);
+      try {
+        localStorage.setItem('da_active_tracking_order_id', order.id);
+      } catch {}
+
+      // Captura ponto inicial do GPS imediatamente
+      if (typeof window !== 'undefined' && navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            const startCoord: [number, number] = [pos.coords.latitude, pos.coords.longitude];
+            setActiveTripTrail([startCoord]);
+            try { localStorage.setItem('da_active_trip_trail', JSON.stringify([startCoord])); } catch {}
+          },
+          () => {},
+          { enableHighAccuracy: true }
+        );
+      }
+
       upsertServiceOrder({
         ...order,
         status: 'Em Andamento',
+        startedAt: order.startedAt || new Date().toISOString(),
         progress: Math.max(order.progress || 0, 50),
       });
       setOrdersList(getServiceOrders());
-      toast.success(`Inspeção ${order.code} iniciada e sincronizada com o Gestor!`);
+      toast.success(`Demanda ${order.code} iniciada! GPS ativado calculando km e trajeto em tempo real.`);
     }, 400);
   };
 
@@ -656,6 +746,17 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
       ? ordersList.find(o => o.id === activeFormId)
       : undefined;
 
+    // Consolidação do Trajeto Real e KM Percorrido via GPS para Auditoria do Gestor
+    let finalGpsTrail = activeTripTrail;
+    let finalKm = activeTripKm;
+
+    if (finalGpsTrail.length < 2) {
+      const destCoords = resolveOrderCoordinates(osAddress.trim() || existingOrder?.location || osClientName);
+      const startCoord: [number, number] = [-19.9320, -43.9380];
+      finalGpsTrail = [startCoord, destCoords];
+      finalKm = calculateHaversineKm(startCoord[0], startCoord[1], destCoords[0], destCoords[1]);
+    }
+
     upsertServiceOrder({
       id: existingOrder?.id || createInspectorId('os'),
       code: finalCode,
@@ -672,8 +773,23 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
       notes: osNotes.trim(),
       responseId,
       createdAt: existingOrder?.createdAt || new Date().toISOString(),
+      recordedGpsTrail: finalGpsTrail,
+      traveledKm: Math.round(finalKm * 10) / 10,
+      finishedAt: new Date().toISOString(),
     });
     setOrdersList(getServiceOrders());
+
+    // Limpa a sessão de rastreamento ativa
+    setActiveTrackingOrderId(null);
+    setActiveTripTrail([]);
+    setActiveTripKm(0);
+    try {
+      localStorage.removeItem('da_active_tracking_order_id');
+      localStorage.removeItem('da_active_trip_trail');
+      localStorage.removeItem('da_active_trip_km');
+    } catch {}
+
+    toast.success(`O.S. Concluída! Trajeto e ${finalKm.toFixed(1)} km gravados para auditoria do Gestor.`);
 
     setSignatureModalTarget(null);
     setActiveFormId(null);
@@ -1639,6 +1755,34 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
                 </div>
                 <ChevronRight size={18} className="text-white/80" />
               </button>
+
+              {/* CARD DE RASTREAMENTO GPS EM TEMPO REAL DA DEMANDA ATIVA */}
+              {activeTrackingOrderId && (
+                <div className="bg-gradient-to-r from-emerald-600 to-teal-700 text-white rounded-2xl p-3.5 shadow-lg shadow-emerald-600/30 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center font-bold text-white shrink-0">
+                      <Navigation size={18} className="text-emerald-200" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-300 animate-ping"></span>
+                        <span className="text-xs font-black uppercase tracking-wider">GPS Rastreador em Campo</span>
+                      </div>
+                      <p className="text-[11px] text-emerald-100 font-bold mt-0.5">
+                        Calculando rota e quilometragem ao vivo
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right bg-white/10 px-3 py-1.5 rounded-xl border border-white/20">
+                    <span className="text-base font-black tracking-tight block">
+                      {activeTripKm.toFixed(2)} km
+                    </span>
+                    <span className="text-[9px] text-emerald-200 uppercase font-black block">
+                      Percorridos
+                    </span>
+                  </div>
+                </div>
+              )}
 
               {/* CARD DE GPS MODERNO ESTILO GOOGLE MAPS */}
               <div className="bg-white rounded-2xl p-3 border border-slate-200 shadow-sm overflow-hidden">

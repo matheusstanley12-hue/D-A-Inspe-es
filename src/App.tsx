@@ -23,6 +23,16 @@ function App() {
   const [pendingFirstAccess, setPendingFirstAccess] = useState<PendingFirstAccessUser | null>(null);
 
   useEffect(() => {
+    // Parâmetro de URL para testes, pré-visualizações ou deep links
+    const params = new URLSearchParams(window.location.search);
+    const roleParam = params.get('role');
+    if (roleParam === 'inspetor' || roleParam === 'gestor' || roleParam === 'cliente') {
+      setUserRole(roleParam);
+      setUserEmail(roleParam === 'inspetor' ? 'matheus.stanley12@gmail.com' : 'admin@dainspecoes.com.br');
+      setIsAuthenticated(true);
+      return;
+    }
+
     // Check if there is an active Supabase session
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {

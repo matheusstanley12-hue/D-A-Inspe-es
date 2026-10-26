@@ -6,6 +6,7 @@ import {
   Navigation, MapPin, Compass, Maximize2, Minimize2, 
   Play
 } from 'react-feather';
+import { fetchRoadRoute } from '../utils/roadRouting';
 
 // Fix padrão de ícones do Leaflet
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -31,6 +32,9 @@ export interface MapPoint {
 export interface ModernGpsMapProps {
   points?: MapPoint[];
   routeCoords?: [number, number][];
+  recordedTrail?: [number, number][]; // Trilha real gravada pelo GPS do inspetor
+  traveledKm?: number; // Total real de KM percorrido via GPS
+  isManagerView?: boolean; // Modo auditoria exclusivo do gestor
   center?: [number, number];
   zoom?: number;
   height?: string;
@@ -227,6 +231,9 @@ function MapController({
 export default function ModernGpsMap({
   points = [],
   routeCoords,
+  recordedTrail,
+  traveledKm,
+  isManagerView = false,
   center: initialCenter = [-19.9320, -43.9380], // Sede D&A Inspeções (Belo Horizonte - MG)
   zoom: initialZoom = 13,
   height = '420px',
@@ -250,6 +257,11 @@ export default function ModernGpsMap({
   const [gpsSpeed, setGpsSpeed] = useState<number | null>(null);
   const [gpsHeading, setGpsHeading] = useState<number | null>(null);
   const [gpsActive, setGpsActive] = useState<boolean>(false);
+
+  // Roteamento Real por Ruas e Rodovias (OSRM Engine - Curvas e Traçado Real)
+  const [roadGeometry, setRoadGeometry] = useState<[number, number][]>([]);
+  const [roadDistanceKm, setRoadDistanceKm] = useState<number | null>(null);
+  const [roadDurationMin, setRoadDurationMin] = useState<number | null>(null);
 
   // Controle de Visualização no Mapa
   const [mapCenter, setMapCenter] = useState<[number, number]>(initialCenter);
@@ -336,21 +348,64 @@ export default function ModernGpsMap({
   // Ponto de Origem para Cálculos de Rota: Posição do Inspetor ou Sede
   const originCoords = gpsLocation || initialCenter;
 
+  // Cálculo Dinâmico de Rota Real por Ruas e Rodovias (OSRM)
+  useEffect(() => {
+    // Se trilha real gravada por GPS do inspetor já foi enviada, não precisa recalcular rota planejada
+    if (recordedTrail && recordedTrail.length >= 2) {
+      setRoadGeometry(recordedTrail);
+      return;
+    }
+
+    // Se já foram fornecidas coordenadas detalhadas de percurso (> 2 pontos), usa diretamente
+    if (routeCoords && routeCoords.length > 2) {
+      setRoadGeometry(routeCoords);
+      return;
+    }
+
+    const waypoints: [number, number][] = routeCoords && routeCoords.length === 2
+      ? routeCoords
+      : selectedPoint
+      ? [originCoords, selectedPoint.coords]
+      : points.length > 0
+      ? [originCoords, ...points.map(p => p.coords)]
+      : [];
+
+    if (waypoints.length >= 2) {
+      let isMounted = true;
+      fetchRoadRoute(waypoints).then(res => {
+        if (isMounted && res.coords.length > 0) {
+          setRoadGeometry(res.coords);
+          setRoadDistanceKm(res.distanceKm);
+          setRoadDurationMin(res.durationMin);
+        }
+      });
+      return () => {
+        isMounted = false;
+      };
+    } else {
+      setRoadGeometry([]);
+    }
+  }, [points, selectedPoint, routeCoords, originCoords, recordedTrail]);
+
   // Cálculo da Distância até o Ponto Selecionado
-  const selectedDistanceKm = selectedPoint
+  const selectedDistanceKm = roadDistanceKm ?? (selectedPoint
     ? calculateDistanceKm(originCoords[0], originCoords[1], selectedPoint.coords[0], selectedPoint.coords[1])
-    : null;
+    : null);
 
-  const selectedEta = selectedDistanceKm !== null ? estimateTravelTime(selectedDistanceKm) : null;
+  const selectedEta = roadDurationMin 
+    ? (roadDurationMin < 60 ? `${roadDurationMin} min` : `${Math.floor(roadDurationMin / 60)}h ${roadDurationMin % 60}m`)
+    : selectedDistanceKm !== null ? estimateTravelTime(selectedDistanceKm) : null;
 
-  // Coordenadas da Linha de Rota (se não fornecidas externamente, liga o GPS ou a Sede aos pontos)
-  const computedRoute: [number, number][] = routeCoords && routeCoords.length > 0
+  // Traçado a exibir no mapa: rota por ruas se disponível, senão fallback
+  const fallbackRoute: [number, number][] = routeCoords && routeCoords.length > 0
     ? routeCoords
     : selectedPoint
     ? [originCoords, selectedPoint.coords]
     : points.length > 0
     ? [originCoords, ...points.map(p => p.coords)]
     : [];
+
+  const displayRoute = roadGeometry.length > 0 ? roadGeometry : fallbackRoute;
 
   return (
     <div 
@@ -380,22 +435,22 @@ export default function ModernGpsMap({
           flyTrigger={flyTrigger} 
         />
 
-        {/* Linha da Rota Estilo Google Maps (Glow azul e núcleo vibrante) */}
-        {computedRoute.length >= 2 && (
+        {/* Linha da Rota Estilo Google Maps (Curvas e Vias Reais) */}
+        {displayRoute.length >= 2 && (
           <>
             {/* Sombra / Glow exterior */}
             <Polyline
-              positions={computedRoute}
-              color="#0284c7"
-              weight={8}
+              positions={displayRoute}
+              color={recordedTrail && recordedTrail.length >= 2 ? "#047857" : "#0284c7"}
+              weight={9}
               opacity={0.35}
               lineCap="round"
               lineJoin="round"
             />
-            {/* Linha principal sólida Google Navigation */}
+            {/* Linha principal sólida (Verde para trajeto GPS percorrido, Azul para rota planejada) */}
             <Polyline
-              positions={computedRoute}
-              color="#1a73e8"
+              positions={displayRoute}
+              color={recordedTrail && recordedTrail.length >= 2 ? "#10b981" : "#1a73e8"}
               weight={5}
               opacity={0.95}
               lineCap="round"
@@ -514,13 +569,20 @@ export default function ModernGpsMap({
             </div>
             <div className="leading-tight">
               <div className="flex items-center gap-1.5">
-                <span className={`w-2 h-2 rounded-full ${gpsActive ? 'bg-emerald-400 shadow-[0_0_8px_#34d399]' : 'bg-amber-400'}`}></span>
-                <span className="text-xs font-black tracking-wide text-white">
-                  {title}
+                <span className={`w-2 h-2 rounded-full ${recordedTrail && recordedTrail.length >= 2 ? 'bg-emerald-400 shadow-[0_0_8px_#34d399]' : gpsActive ? 'bg-emerald-400 shadow-[0_0_8px_#34d399]' : 'bg-amber-400'}`}></span>
+                <span className="text-xs font-black tracking-wide text-white flex items-center gap-1.5">
+                  {recordedTrail && recordedTrail.length >= 2 ? 'Trajeto Percorrido em Campo (GPS)' : title}
+                  {isManagerView && (
+                    <span className="text-[9px] bg-blue-500/40 text-blue-200 px-1.5 py-0.2 rounded font-extrabold uppercase">
+                      Gestor
+                    </span>
+                  )}
                 </span>
               </div>
               <p className="text-[10px] text-slate-300 font-medium">
-                {gpsActive 
+                {recordedTrail && recordedTrail.length >= 2
+                  ? `Total de KM Percorrido: ${traveledKm ? `${traveledKm.toFixed(1)} km` : `${roadDistanceKm || 0} km`} (Auditado)`
+                  : gpsActive 
                   ? `GPS Ativo • Precisão ±${gpsAccuracy || 8}m ${gpsSpeed ? `• ${gpsSpeed} km/h` : ''}` 
                   : subtitle}
               </p>

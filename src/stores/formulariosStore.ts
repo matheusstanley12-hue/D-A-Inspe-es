@@ -363,6 +363,10 @@ export interface ServiceOrder {
   notes?: string;
   responseId?: string;
   createdAt?: string;
+  recordedGpsTrail?: [number, number][]; // Pontos GPS reais percorridos pelo inspetor
+  traveledKm?: number; // Total de KM percorrido via GPS
+  startedAt?: string;
+  finishedAt?: string;
 }
 
 export const ORDERS_CHANGE_EVENT = 'da_orders_changed';

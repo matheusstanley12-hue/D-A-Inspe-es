@@ -19,7 +19,13 @@ import ClientImpersonationView from './ClientImpersonationView';
 
 const AdminView = ({ onLogout }: { onLogout: () => void }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => typeof window !== 'undefined' ? window.innerWidth >= 768 : false);
-  const [activeMenu, setActiveMenu] = useState('Indicadores');
+  const [activeMenu, setActiveMenu] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const p = new URLSearchParams(window.location.search).get('menu');
+      if (p === 'inspetores' || p === 'Inspetores') return 'Inspetores';
+    }
+    return 'Indicadores';
+  });
   const [isGestaoExpanded, setIsGestaoExpanded] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(document.documentElement.classList.contains('dark'));
   const [menuSearch, setMenuSearch] = useState('');

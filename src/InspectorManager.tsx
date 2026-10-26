@@ -1,7 +1,5 @@
 import { useState, useEffect } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
-import 'leaflet/dist/leaflet.css';
-import L from 'leaflet';
+import ModernGpsMap, { resolveOrderCoordinates } from './components/ModernGpsMap';
 import { ChevronRight, ChevronDown, ChevronLeft, Map, CheckCircle, Clock, Maximize2, X, DollarSign } from 'react-feather';
 import toast from 'react-hot-toast';
 import { 
@@ -10,10 +8,6 @@ import {
   getClients, CLIENTS_CHANGE_EVENT, type SystemClient,
   getServiceOrders, upsertServiceOrder, ORDERS_CHANGE_EVENT
 } from './stores/formulariosStore';
-
-// Fix for default marker icon in react-leaflet
-import icon from 'leaflet/dist/images/marker-icon.png';
-import iconShadow from 'leaflet/dist/images/marker-shadow.png';
 
 export interface TripMeal {
   type: string;
@@ -46,36 +40,6 @@ export interface Inspector {
   trips: Trip[];
 }
 
-const createPinIcon = (color: string, label?: string) => L.divIcon({
-  className: 'custom-pin-icon',
-  html: `
-    <div style="position: relative; transform: translate(-16px, -38px); filter: drop-shadow(0 6px 12px rgba(0,0,0,0.35)); cursor: pointer;">
-      <svg width="32" height="40" viewBox="0 0 32 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M16 0C7.16344 0 0 7.16344 0 16C0 26 16 40 16 40C16 40 32 26 32 16C32 7.16344 24.8366 0 16 0Z" fill="${color}"/>
-        <circle cx="16" cy="16" r="8" fill="#ffffff"/>
-      </svg>
-      <div style="position: absolute; top: 10px; left: 8px; color: ${color}; font-size: 10px; font-weight: 900; line-height: 1; text-align: center; width: 16px;">
-        ${label || '📍'}
-      </div>
-    </div>
-  `,
-  iconSize: [0, 0],
-  iconAnchor: [0, 0],
-  popupAnchor: [0, -38]
-});
-
-const startIcon = createPinIcon('#2563eb', '🏢'); // Blue Sede
-const destIcon = createPinIcon('#059669', '✓');   // Green Destino
-const transitIcon = createPinIcon('#f59e0b', '📍'); // Amber Waypoint
-
-let DefaultIcon = L.icon({
-    iconUrl: icon,
-    shadowUrl: iconShadow,
-    iconSize: [25, 41],
-    iconAnchor: [12, 41]
-});
-L.Marker.prototype.options.icon = DefaultIcon;
-
 function buildInspectorsList(): Inspector[] {
   const users = getSystemUsers().filter(u => u.role === 'inspetor');
   const expenses = getExpenses();
@@ -92,23 +56,28 @@ function buildInspectorsList(): Inspector[] {
     );
     const activeOrder = userOrders.find(o => o.status === 'Em Andamento' || o.status === 'Agendada');
 
-    const trips: Trip[] = userOrders.map((o, oIdx) => ({
-      id: o.id || `trip_${oIdx}`,
-      date: o.date,
-      status: o.status === 'Concluída' ? 'completed' : 'in_progress',
-      waypoints: ['Sede D&A Inspeções', o.client + (o.location ? ` (${o.location})` : '')],
-      coords: [
-        [-19.9320, -43.9380] as [number, number],
-        [-19.9208 + (oIdx * 0.02), -43.9378 + (oIdx * 0.02)] as [number, number]
-      ],
-      distanceKm: 12.5,
-      stops: 1,
-      meals: userExpenses.filter(e => e.category === 'alimentacao').map(e => ({ type: e.description, value: e.valor })),
-      receipts: {
-        fuel: userExpenses.find(e => e.category === 'combustivel')?.receiptUrl || null,
-        food: userExpenses.filter(e => e.category === 'alimentacao' && e.receiptUrl).map(e => e.receiptUrl as string)
-      }
-    }));
+    const trips: Trip[] = userOrders.map((o, oIdx) => {
+      const destCoord = resolveOrderCoordinates(o.location || o.client, oIdx);
+      const startCoord: [number, number] = [-19.9320, -43.9380];
+      const realTrail = o.recordedGpsTrail && o.recordedGpsTrail.length >= 2
+        ? o.recordedGpsTrail
+        : [startCoord, destCoord];
+
+      return {
+        id: o.id || `trip_${oIdx}`,
+        date: o.date,
+        status: o.status === 'Concluída' ? 'completed' : 'in_progress',
+        waypoints: ['Sede D&A Inspeções', o.client + (o.location ? ` (${o.location})` : '')],
+        coords: realTrail,
+        distanceKm: o.traveledKm ? Math.round(o.traveledKm * 10) / 10 : 12.5,
+        stops: 1,
+        meals: userExpenses.filter(e => e.category === 'alimentacao').map(e => ({ type: e.description, value: e.valor })),
+        receipts: {
+          fuel: userExpenses.find(e => e.category === 'combustivel')?.receiptUrl || null,
+          food: userExpenses.filter(e => e.category === 'alimentacao' && e.receiptUrl).map(e => e.receiptUrl as string)
+        }
+      };
+    });
 
     return {
       id: idx + 1,
@@ -683,63 +652,25 @@ export default function InspectorManager() {
 
                             </div>
 
-                            {/* Mapa Incorporado Moderno (Estilo Google Maps) */}
-                            <div className="h-64 lg:h-full rounded-2xl overflow-hidden border border-slate-300 shadow-md relative min-h-[300px]">
-                              <MapContainer 
-                                center={trip.coords[0] as [number, number]} 
-                                zoom={13} 
-                                className="w-full h-full z-0"
-                              >
-                                <TileLayer
-                                  attribution='&copy; Google Maps'
-                                  url={managerMapLayer === 'streets' 
-                                    ? "https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}" 
-                                    : "https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}"}
-                                  maxZoom={20}
-                                />
-                                {trip.coords.map((coord, idx) => (
-                                  <Marker 
-                                    key={idx} 
-                                    position={coord as [number, number]}
-                                    icon={idx === 0 ? startIcon : idx === trip.coords.length - 1 ? destIcon : transitIcon}
-                                  >
-                                    <Popup>
-                                      <div className="font-sans text-xs font-bold p-1">
-                                        <span className="text-blue-600 block text-[10px] uppercase font-black">
-                                          {idx === 0 ? 'Origem' : idx === trip.coords.length - 1 ? 'Destino Final' : `Parada ${idx}`}
-                                        </span>
-                                        {trip.waypoints[idx]}
-                                      </div>
-                                    </Popup>
-                                  </Marker>
-                                ))}
-                                {/* Efeito de halo/brilho no trajeto */}
-                                <Polyline 
-                                  positions={trip.coords as [number, number][]} 
-                                  color="#1e3a8a" 
-                                  weight={7}
-                                  opacity={0.3}
-                                />
-                                <Polyline 
-                                  positions={trip.coords as [number, number][]} 
-                                  color={trip.status === 'completed' ? "#10b981" : "#2563eb"} 
-                                  weight={4}
-                                  dashArray={trip.status === 'completed' ? "" : "8, 8"}
-                                />
-                              </MapContainer>
+                            {/* Mapa Incorporado Moderno (Estilo Google Maps com Roteamento Real) */}
+                            <div className="h-72 lg:h-full rounded-2xl overflow-hidden border border-slate-300 shadow-md relative min-h-[340px]">
+                              <ModernGpsMap
+                                points={[
+                                  { id: 'start', name: trip.waypoints[0] || 'Sede D&A Inspeções', coords: trip.coords[0], type: 'sede' },
+                                  { id: 'end', name: trip.waypoints[trip.waypoints.length - 1], coords: trip.coords[trip.coords.length - 1], type: 'cliente', status: trip.status === 'completed' ? 'Concluída' : 'Em Andamento' }
+                                ]}
+                                routeCoords={trip.coords}
+                                recordedTrail={trip.status === 'completed' ? trip.coords : undefined}
+                                traveledKm={trip.distanceKm}
+                                isManagerView={true}
+                                enableLiveGps={false}
+                                height="100%"
+                                showNavigationControls={false}
+                                title="Auditoria de Rota (Gestor)"
+                                subtitle={`Total Percorrido via GPS: ${trip.distanceKm} km`}
+                              />
                               
-                              <div className="absolute top-2.5 right-2.5 z-10 flex items-center gap-1.5 flex-wrap justify-end">
-                                {/* Botão Seletor de Camada: Google Ruas / Google Satélite */}
-                                <button
-                                  type="button"
-                                  onClick={() => setManagerMapLayer(managerMapLayer === 'streets' ? 'hybrid' : 'streets')}
-                                  className="bg-white/95 backdrop-blur-md px-2.5 py-1.5 rounded-xl shadow-md border border-slate-200 text-xs font-extrabold text-slate-800 hover:bg-white transition-all cursor-pointer"
-                                  title="Alternar entre Ruas e Satélite"
-                                >
-                                  {managerMapLayer === 'streets' ? '🛰️ Satélite' : '🗺️ Ruas'}
-                                </button>
-
-                                {/* Botão Abrir Rota no Google Maps */}
+                              <div className="absolute top-2.5 right-2.5 z-10 flex items-center gap-1.5">
                                 <button
                                   type="button"
                                   onClick={() => {
@@ -751,9 +682,8 @@ export default function InspectorManager() {
                                   title="Abrir no Google Maps oficial"
                                 >
                                   <Map size={13} className="text-blue-400" />
-                                  <span>Google</span>
+                                  <span>Google Maps</span>
                                 </button>
-
                                 <button 
                                   onClick={() => setFullscreenMapTrip(trip)}
                                   className="bg-white/95 backdrop-blur-md p-2 rounded-xl shadow-md border border-slate-200 text-slate-700 hover:text-blue-600 hover:bg-white transition-colors cursor-pointer"
@@ -1054,47 +984,21 @@ export default function InspectorManager() {
           </div>
           
           <div className="flex-1 w-full relative z-[100]">
-            <MapContainer 
-              center={fullscreenMapTrip.coords[0] as [number, number]} 
-              zoom={13} 
-              className="w-full h-full"
-            >
-              <TileLayer
-                attribution='&copy; Google Maps'
-                url={managerMapLayer === 'streets' 
-                  ? "https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}" 
-                  : "https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}"}
-                maxZoom={20}
-              />
-              {fullscreenMapTrip.coords.map((coord: any, idx: number) => (
-                <Marker 
-                  key={idx} 
-                  position={coord as [number, number]}
-                  icon={idx === 0 ? startIcon : idx === fullscreenMapTrip.coords.length - 1 ? destIcon : transitIcon}
-                >
-                  <Popup>
-                    <div className="font-sans text-xs font-bold p-1">
-                      <span className="text-blue-600 block text-[10px] uppercase font-black">
-                        {idx === 0 ? 'Origem' : idx === fullscreenMapTrip.coords.length - 1 ? 'Destino Final' : `Parada ${idx}`}
-                      </span>
-                      {fullscreenMapTrip.waypoints[idx]}
-                    </div>
-                  </Popup>
-                </Marker>
-              ))}
-              <Polyline 
-                positions={fullscreenMapTrip.coords as [number, number][]} 
-                color="#1e3a8a" 
-                weight={7}
-                opacity={0.3}
-              />
-              <Polyline 
-                positions={fullscreenMapTrip.coords as [number, number][]} 
-                color={fullscreenMapTrip.status === 'completed' ? "#10b981" : "#2563eb"} 
-                weight={4}
-                dashArray={fullscreenMapTrip.status === 'completed' ? "" : "8, 8"}
-              />
-            </MapContainer>
+            <ModernGpsMap
+              points={[
+                { id: 'start', name: fullscreenMapTrip.waypoints[0] || 'Sede D&A Inspeções', coords: fullscreenMapTrip.coords[0], type: 'sede' },
+                { id: 'end', name: fullscreenMapTrip.waypoints[fullscreenMapTrip.waypoints.length - 1], coords: fullscreenMapTrip.coords[fullscreenMapTrip.coords.length - 1], type: 'cliente', status: fullscreenMapTrip.status === 'completed' ? 'Concluída' : 'Em Andamento' }
+              ]}
+              routeCoords={fullscreenMapTrip.coords}
+              recordedTrail={fullscreenMapTrip.status === 'completed' ? fullscreenMapTrip.coords : undefined}
+              traveledKm={fullscreenMapTrip.distanceKm}
+              isManagerView={true}
+              enableLiveGps={false}
+              height="100%"
+              showNavigationControls={false}
+              title="Auditoria de Deslocamento (Gestor)"
+              subtitle={`Total Percorrido via GPS: ${fullscreenMapTrip.distanceKm} km`}
+            />
           </div>
         </div>
       )}
