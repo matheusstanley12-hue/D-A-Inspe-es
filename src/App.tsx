@@ -77,33 +77,6 @@ function App() {
     });
   }, []);
 
-  const handleStartFirstAccess = (emailOrUsername: string) => {
-    setLoginError('');
-    const clean = emailOrUsername.trim().toLowerCase();
-    if (!clean) {
-      setLoginError('Por favor, informe seu e-mail ou usuário no campo acima.');
-      return;
-    }
-    const user = findSystemUserByEmail(clean);
-    if (!user) {
-      setLoginError(`Usuário "${emailOrUsername}" não encontrado. Verifique com seu gestor.`);
-      return;
-    }
-    if (user.status === 'inativo') {
-      setLoginError('Este usuário está inativo. Entre em contato com o Gestor.');
-      return;
-    }
-    const mappedRole: 'gestor' | 'inspetor' | 'cliente' =
-      user.role === 'inspetor' ? 'inspetor' : user.role === 'cliente' ? 'cliente' : 'gestor';
-
-    setPendingFirstAccess({
-      email: user.email,
-      name: user.name,
-      role: mappedRole,
-    });
-    toast('Primeiro acesso! Defina sua nova senha pessoal de acesso.', { icon: '🔐' });
-  };
-
   const handleLogin = async (email: string, pass: string) => {
     setLoginError('');
     const cleanEmail = email.trim().toLowerCase();
@@ -183,7 +156,7 @@ function App() {
 
         setLoginError(
           registeredUser.mustChangePassword
-            ? `Primeiro acesso de ${registeredUser.name}! Digite a senha padrão 123456 (ou clique em "Primeiro Acesso") para criar sua senha pessoal.`
+            ? `Senha incorreta. Para o primeiro acesso utilize a senha padrão fornecida pelo Gestor (${DEFAULT_INITIAL_PASSWORD}).`
             : 'Senha incorreta. Verifique sua senha e tente novamente.'
         );
         return;
@@ -219,7 +192,7 @@ function App() {
           name: registeredUser.name,
           role: mappedRole,
         });
-        toast('Primeiro acesso! Defina sua nova senha pessoal para continuar.', { icon: '🔐' });
+        toast('Primeiro acesso! Crie sua nova senha pessoal para continuar.', { icon: '🔐' });
         return;
       }
 
@@ -386,7 +359,6 @@ function App() {
           pendingFirstAccess={pendingFirstAccess}
           onConfirmNewPassword={handleConfirmNewPassword}
           onCancelFirstAccess={() => setPendingFirstAccess(null)}
-          onStartFirstAccess={handleStartFirstAccess}
         />
       )}
     </>
