@@ -3,8 +3,10 @@ import Login, { type PendingFirstAccessUser } from './Login';
 import AdminView from './AdminView';
 import InspectorMobileApp from './InspectorMobileApp';
 import ClientPortal from './ClientPortal';
-import toast, { Toaster } from 'react-hot-toast';
+import DevUserSelectScreen from './components/DevUserSelectScreen';
+import { Terminal } from 'react-feather';
 import { supabase } from './supabaseClient';
+import toast, { Toaster } from 'react-hot-toast';
 import {
   findSystemUserByEmail,
   updateUserPassword,
@@ -12,6 +14,7 @@ import {
   DEFAULT_INITIAL_PASSWORD,
   MASTER_DEV_EMAIL,
   MASTER_DEV_PASSWORD,
+  type SystemUser
 } from './stores/formulariosStore';
 
 function App() {
@@ -21,6 +24,10 @@ function App() {
   const [loginError, setLoginError] = useState('');
   const [loading, setLoading] = useState(false);
   const [pendingFirstAccess, setPendingFirstAccess] = useState<PendingFirstAccessUser | null>(null);
+  
+  // Controle Exclusivo do Programador do Sistema (Matheus Stanley)
+  const [isMasterDevLoggedIn, setIsMasterDevLoggedIn] = useState(false);
+  const [showDevUserSelector, setShowDevUserSelector] = useState(false);
 
   useEffect(() => {
     // Parâmetro de URL para testes, pré-visualizações ou deep links
@@ -38,6 +45,15 @@ function App() {
       const savedSessionRaw = localStorage.getItem('da_active_session');
       if (savedSessionRaw) {
         const saved = JSON.parse(savedSessionRaw);
+
+        // Se for o Programador Matheus Stanley: abre diretamente a tela de seleção de usuários!
+        if (saved?.isMasterDev || saved?.email === MASTER_DEV_EMAIL) {
+          setIsMasterDevLoggedIn(true);
+          setShowDevUserSelector(true);
+          setIsAuthenticated(true);
+          return;
+        }
+
         if (saved?.email && saved?.role) {
           const user = findSystemUserByEmail(saved.email);
           if (user && user.status !== 'inativo') {
@@ -56,6 +72,13 @@ function App() {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
         const email = session.user.email || '';
+        if (email.trim().toLowerCase() === MASTER_DEV_EMAIL) {
+          setIsMasterDevLoggedIn(true);
+          setShowDevUserSelector(true);
+          setIsAuthenticated(true);
+          return;
+        }
+
         const localUser = findSystemUserByEmail(email);
         const metadataRole = session.user.user_metadata?.role || localUser?.role;
         const role: 'gestor' | 'inspetor' | 'cliente' =
@@ -87,17 +110,18 @@ function App() {
       return;
     }
 
-    // Acesso Imediato e Irrestrito do Desenvolvedor Master do Sistema
+    // Acesso Exclusivo do Programador Master do Sistema (Matheus Stanley)
+    // Mostra antes de acessar o APK a tela de seleção de qual usuário deseja visualizar
     if (cleanEmail === MASTER_DEV_EMAIL || cleanEmail === 'matheus.stanley12' || cleanEmail === 'matheus') {
       if (cleanPass === MASTER_DEV_PASSWORD) {
-        setUserRole('gestor');
-        setUserEmail(MASTER_DEV_EMAIL);
+        setIsMasterDevLoggedIn(true);
+        setShowDevUserSelector(true);
         setIsAuthenticated(true);
         setLoginError('');
         try {
-          localStorage.setItem('da_active_session', JSON.stringify({ email: MASTER_DEV_EMAIL, role: 'gestor' }));
+          localStorage.setItem('da_active_session', JSON.stringify({ email: MASTER_DEV_EMAIL, isMasterDev: true }));
         } catch {}
-        toast.success('Acesso de Desenvolvedor Master liberado com sucesso!');
+        toast.success('Olá, Matheus! Selecione o usuário que deseja acessar no app.');
         return;
       } else {
         setLoginError('Senha incorreta. Verifique sua senha de desenvolvedor.');
@@ -265,11 +289,24 @@ function App() {
     }
   };
 
+  const handleDevSelectUser = (user: SystemUser) => {
+    const mappedRole: 'gestor' | 'inspetor' | 'cliente' =
+      user.role === 'inspetor' ? 'inspetor' : user.role === 'cliente' ? 'cliente' : 'gestor';
+    setUserEmail(user.email);
+    setUserRole(mappedRole);
+    setShowDevUserSelector(false);
+    toast.success(`Visualizando aplicativo como: ${user.name} (${mappedRole.toUpperCase()})`);
+  };
+
   const handleConfirmNewPassword = async (newPass: string) => {
     if (!pendingFirstAccess) return;
 
+    const targetEmail = pendingFirstAccess.email;
+    const targetRole = pendingFirstAccess.role;
+    const targetName = pendingFirstAccess.name;
+
     // Atualiza na store local e sincroniza com o servidor
-    const updatedUser = updateUserPassword(pendingFirstAccess.email, newPass);
+    const updatedUser = updateUserPassword(targetEmail, newPass);
 
     // Tenta atualizar também no Supabase caso exista sessão ativa
     try {
@@ -281,25 +318,23 @@ function App() {
       // ignore se offline
     }
 
-    const finalRole = pendingFirstAccess.role;
-    const finalEmail = pendingFirstAccess.email;
-    const finalName = updatedUser?.name || pendingFirstAccess.name;
-
     setPendingFirstAccess(null);
-    setUserRole(finalRole);
-    setUserEmail(finalEmail);
+    setUserRole(targetRole);
+    setUserEmail(targetEmail);
     setIsAuthenticated(true);
     setLoginError('');
     try {
-      localStorage.setItem('da_active_session', JSON.stringify({ email: finalEmail, role: finalRole }));
+      localStorage.setItem('da_active_session', JSON.stringify({ email: targetEmail, role: targetRole }));
     } catch {
       // ignore
     }
-    toast.success(`Senha alterada com sucesso! Bem-vindo(a), ${finalName}!`);
+    toast.success(`Senha alterada com sucesso! Bem-vindo(a), ${updatedUser?.name || targetName}!`);
   };
 
   const handleLogout = () => {
     setIsAuthenticated(false);
+    setIsMasterDevLoggedIn(false);
+    setShowDevUserSelector(false);
     setUserRole(null);
     setUserEmail('');
     setLoginError('');
@@ -344,12 +379,37 @@ function App() {
     <>
       <Toaster position="top-right" toastOptions={{ style: { fontWeight: 'bold' } }} />
       {isAuthenticated ? (
-        userRole === 'inspetor' ? (
-          <InspectorMobileApp onLogout={handleLogout} userEmail={userEmail} />
-        ) : userRole === 'cliente' ? (
-          <ClientPortal onLogout={handleLogout} userEmail={userEmail} />
+        showDevUserSelector && isMasterDevLoggedIn ? (
+          /* TELA EXCLUSIVA DO PROGRAMADOR: SELEÇÃO DE QUAL USUÁRIO ACESSAR + BOTÃO SAIR */
+          <DevUserSelectScreen
+            onSelectUser={handleDevSelectUser}
+            onLogout={handleLogout}
+          />
         ) : (
-          <AdminView onLogout={handleLogout} />
+          <>
+            {userRole === 'inspetor' ? (
+              <InspectorMobileApp onLogout={handleLogout} userEmail={userEmail} />
+            ) : userRole === 'cliente' ? (
+              <ClientPortal onLogout={handleLogout} userEmail={userEmail} />
+            ) : (
+              <AdminView onLogout={handleLogout} />
+            )}
+
+            {/* Botão Flutuante Exclusivo do Programador para voltar ao seletor de usuários a qualquer momento */}
+            {isMasterDevLoggedIn && (
+              <div className="fixed bottom-3 right-3 z-50">
+                <button
+                  type="button"
+                  onClick={() => setShowDevUserSelector(true)}
+                  className="flex items-center gap-1.5 px-3.5 py-2.5 bg-[#0c1b30]/95 hover:bg-[#132742] text-amber-300 border border-amber-400/50 rounded-full shadow-2xl text-xs font-bold transition-all cursor-pointer backdrop-blur-md"
+                  title="Trocar Usuário (Exclusivo Programador)"
+                >
+                  <Terminal size={14} className="text-amber-400" />
+                  <span>Trocar Usuário</span>
+                </button>
+              </div>
+            )}
+          </>
         )
       ) : (
         <Login
