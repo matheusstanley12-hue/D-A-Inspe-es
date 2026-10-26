@@ -2,8 +2,9 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   MapPin, Navigation, Camera, DollarSign, CheckCircle, Clock, 
   ChevronRight, LogOut, Coffee, FileText, FilePlus, Folder, ArrowLeft, 
-  Paperclip, Video, X, Check, Upload, Download, Eye, Home, Truck, RefreshCw, HelpCircle, Edit3, Wifi
+  Paperclip, Video, X, Check, Upload, Download, Eye, EyeOff, Home, Truck, RefreshCw, HelpCircle, Edit3, Wifi, Key
 } from 'react-feather';
+import { supabase } from './supabaseClient';
 import ModernGpsMap, { 
   type MapPoint, 
   resolveOrderCoordinates, 
@@ -24,6 +25,9 @@ import {
   getClients, CLIENTS_CHANGE_EVENT,
   getServiceOrders, upsertServiceOrder, ORDERS_CHANGE_EVENT,
   findSystemUserByEmail,
+  updateUserPassword,
+  getSystemUsers,
+  pushSyncToServer,
   syncFromServer,
   getSyncServerUrl,
   setSyncServerUrl
@@ -364,6 +368,62 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
   const [showServerModal, setShowServerModal] = useState(false);
   const [serverUrlInput, setServerUrlInput] = useState<string>(() => getSyncServerUrl());
   const [isTestingServer, setIsTestingServer] = useState(false);
+
+  // Estados de Alteração de Senha do Inspetor
+  const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
+  const [newPasswordInput, setNewPasswordInput] = useState('');
+  const [confirmPasswordInput, setConfirmPasswordInput] = useState('');
+  const [showPasswordText, setShowPasswordText] = useState(false);
+  const [passwordChangeError, setPasswordChangeError] = useState('');
+  const [isSavingPassword, setIsSavingPassword] = useState(false);
+
+  const handleChangePasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordChangeError('');
+    const cleanNew = newPasswordInput.trim();
+    const cleanConfirm = confirmPasswordInput.trim();
+
+    if (cleanNew.length < 4) {
+      setPasswordChangeError('A nova senha deve ter no mínimo 4 caracteres.');
+      return;
+    }
+    if (cleanNew === '123456') {
+      setPasswordChangeError('Escolha uma senha diferente da senha padrão (123456).');
+      return;
+    }
+    if (cleanNew !== cleanConfirm) {
+      setPasswordChangeError('A confirmação não confere com a nova senha.');
+      return;
+    }
+
+    setIsSavingPassword(true);
+    try {
+      const targetEmail = userEmail || 'inspetor@deainspecoes.com.br';
+      updateUserPassword(targetEmail, cleanNew);
+
+      // Tenta atualizar no Supabase se conectado
+      try {
+        await supabase.auth.updateUser({
+          password: cleanNew,
+          data: { must_change_password: false }
+        });
+      } catch {
+        // offline fallback
+      }
+
+      // Sincroniza com servidor da central
+      pushSyncToServer({ users: getSystemUsers() });
+
+      toast.success('Senha alterada com sucesso!');
+      setShowChangePasswordModal(false);
+      setNewPasswordInput('');
+      setConfirmPasswordInput('');
+    } catch (err: any) {
+      setPasswordChangeError(err?.message || 'Erro ao alterar senha.');
+    } finally {
+      setIsSavingPassword(false);
+    }
+  };
 
   // Clientes e Ordens de Serviço reais sincronizadas com o Gestor
   const [clientsList, setClientsList] = useState<SystemClient[]>(() => getClients());
@@ -1131,6 +1191,19 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
                 title="Sincronizar com Sistema"
               >
                 <RefreshCw size={15} className={isSyncing ? 'animate-spin' : ''} />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setNewPasswordInput('');
+                  setConfirmPasswordInput('');
+                  setPasswordChangeError('');
+                  setShowChangePasswordModal(true);
+                }}
+                className="w-9 h-9 bg-white/15 hover:bg-white/25 text-white rounded-xl transition-colors flex items-center justify-center cursor-pointer"
+                title="Alterar Minha Senha"
+              >
+                <Key size={15} />
               </button>
               <button
                 onClick={onLogout}
@@ -3032,6 +3105,97 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL DE ALTERAÇÃO DE SENHA DO INSPETOR */}
+        {showChangePasswordModal && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-[fadeIn_0.2s_ease-out]">
+            <div className="bg-white w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden border border-slate-200 flex flex-col">
+              <div className="bg-[#0a2e63] text-white p-4 flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center shrink-0">
+                    <Key size={18} />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-black leading-tight">Alterar Minha Senha</h3>
+                    <p className="text-[11px] text-blue-200">Acesso seguro do Inspetor</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowChangePasswordModal(false)}
+                  className="p-1.5 rounded-xl bg-white/15 hover:bg-white/25 text-white cursor-pointer"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <form onSubmit={handleChangePasswordSubmit} className="p-5 space-y-3.5">
+                {passwordChangeError && (
+                  <div className="p-2.5 bg-red-50 border border-red-200 text-red-600 text-xs rounded-xl font-medium text-center">
+                    {passwordChangeError}
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Nova Senha Pessoal
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showPasswordText ? 'text' : 'password'}
+                      value={newPasswordInput}
+                      onChange={e => setNewPasswordInput(e.target.value)}
+                      placeholder="Mínimo de 4 dígitos"
+                      className="w-full pl-3 pr-10 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      required
+                      autoFocus
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPasswordText(!showPasswordText)}
+                      className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600"
+                      tabIndex={-1}
+                    >
+                      {showPasswordText ? <EyeOff size={15} /> : <Eye size={15} />}
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Confirmar Nova Senha
+                  </label>
+                  <input
+                    type={showPasswordText ? 'text' : 'password'}
+                    value={confirmPasswordInput}
+                    onChange={e => setConfirmPasswordInput(e.target.value)}
+                    placeholder="Repita sua nova senha"
+                    className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
+
+                <div className="pt-2 flex flex-col gap-2">
+                  <button
+                    type="submit"
+                    disabled={isSavingPassword}
+                    className="w-full py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-md cursor-pointer transition-all"
+                  >
+                    <CheckCircle size={15} />
+                    <span>{isSavingPassword ? 'Salvando...' : 'Atualizar Minha Senha'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowChangePasswordModal(false)}
+                    className="w-full py-2 text-xs font-bold text-slate-500 hover:text-slate-800 text-center cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         )}
