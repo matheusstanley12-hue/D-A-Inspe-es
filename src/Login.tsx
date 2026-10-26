@@ -18,6 +18,7 @@ interface LoginProps {
   pendingFirstAccess?: PendingFirstAccessUser | null;
   onConfirmNewPassword?: (newPassword: string) => void;
   onCancelFirstAccess?: () => void;
+  onStartFirstAccess?: (email: string) => void;
 }
 
 const Login = ({
@@ -26,6 +27,7 @@ const Login = ({
   pendingFirstAccess = null,
   onConfirmNewPassword,
   onCancelFirstAccess,
+  onStartFirstAccess,
 }: LoginProps) => {
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState('');
@@ -248,14 +250,14 @@ const Login = ({
             {pendingFirstAccess ? (
               <div className="animate-[fadeIn_0.2s_ease-out]">
                 <div className="mb-3">
-                  <span className="inline-flex items-center gap-1 text-[10px] font-extrabold uppercase tracking-wider bg-blue-50 text-blue-700 border border-blue-200 px-2.5 py-0.5 rounded-full mb-1">
-                    <Key size={11} /> 1º Acesso • Troca de Senha Obrigatória
+                  <span className="inline-flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wider bg-blue-50 text-blue-700 border border-blue-200 px-3 py-1 rounded-full mb-2">
+                    <Key size={12} /> Primeiro Acesso • Criar Senha
                   </span>
                   <h1 className="text-[20px] sm:text-[22px] font-extrabold text-[#0b192c] tracking-tight leading-tight">
                     Olá, {pendingFirstAccess.name}!
                   </h1>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Defina agora sua nova senha pessoal de acesso.
+                  <p className="text-xs text-slate-500 mt-1">
+                    Crie sua nova senha pessoal para ter acesso ao sistema ({pendingFirstAccess.role === 'inspetor' ? 'Painel do Inspetor' : pendingFirstAccess.role === 'cliente' ? 'Portal do Cliente' : 'Painel de Gestão'}).
                   </p>
                 </div>
 
@@ -265,9 +267,9 @@ const Login = ({
                   </div>
                 )}
 
-                <form onSubmit={handlePasswordChangeSubmit} className="space-y-3">
+                <form onSubmit={handlePasswordChangeSubmit} className="space-y-3.5">
                   <div>
-                    <label className="block text-xs font-bold text-slate-600 mb-1">
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
                       Nova Senha Pessoal
                     </label>
                     <div className="relative">
@@ -279,8 +281,9 @@ const Login = ({
                         value={newPassword}
                         onChange={(e) => setNewPassword(e.target.value)}
                         className="block w-full pl-10 pr-11 py-2.5 bg-[#eef3f9] border border-[#d5e0ee] rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0c3266]/20 focus:border-[#0c3266] focus:bg-white transition-all"
-                        placeholder="Digite sua nova senha"
+                        placeholder="Digite sua nova senha (mínimo 4 dígitos)"
                         required
+                        autoFocus
                       />
                       <button
                         type="button"
@@ -294,7 +297,7 @@ const Login = ({
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-slate-600 mb-1">
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
                       Confirmar Nova Senha
                     </label>
                     <div className="relative">
@@ -306,24 +309,24 @@ const Login = ({
                         value={confirmNewPassword}
                         onChange={(e) => setConfirmNewPassword(e.target.value)}
                         className="block w-full pl-10 pr-4 py-2.5 bg-[#eef3f9] border border-[#d5e0ee] rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0c3266]/20 focus:border-[#0c3266] focus:bg-white transition-all"
-                        placeholder="Confirme sua nova senha"
+                        placeholder="Repita sua nova senha"
                         required
                       />
                     </div>
                   </div>
 
-                  <div className="pt-1 flex flex-col gap-1.5">
+                  <div className="pt-1 flex flex-col gap-2">
                     <button
                       type="submit"
-                      className="w-full py-2.5 px-6 rounded-xl text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] shadow-lg shadow-emerald-600/25 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                      className="w-full py-3 px-6 rounded-xl text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] shadow-lg shadow-emerald-600/25 transition-all flex items-center justify-center gap-2 cursor-pointer"
                     >
-                      <CheckCircle size={16} />
-                      <span>Salvar Nova Senha e Acessar</span>
+                      <CheckCircle size={17} />
+                      <span>Salvar Nova Senha e Entrar</span>
                     </button>
                     <button
                       type="button"
                       onClick={onCancelFirstAccess}
-                      className="w-full py-1 text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
+                      className="w-full py-1.5 text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
                     >
                       Voltar para o Login
                     </button>
@@ -426,15 +429,26 @@ const Login = ({
                     </a>
                   </div>
 
-                  {/* Botão Entrar */}
-                  <div className="pt-1.5">
+                  {/* Botão Entrar & Primeiro Acesso */}
+                  <div className="pt-1.5 flex flex-col gap-2">
                     <button
                       type="submit"
                       className="w-full py-3 px-6 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-[#0e3975] via-[#092752] to-[#051633] hover:from-[#13468f] hover:via-[#0c3268] hover:to-[#071f45] active:scale-[0.99] shadow-lg shadow-[#092752]/30 transition-all flex items-center justify-center relative cursor-pointer"
                     >
-                      <span>Entrar</span>
+                      <span>Entrar no Aplicativo</span>
                       <ArrowRight size={17} className="absolute right-5 text-white/90" />
                     </button>
+
+                    {onStartFirstAccess && (
+                      <button
+                        type="button"
+                        onClick={() => onStartFirstAccess(email)}
+                        className="w-full py-2.5 px-3 rounded-xl text-xs font-semibold text-blue-700 bg-blue-50/90 hover:bg-blue-100 border border-blue-200/80 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <Key size={13} className="text-blue-600" />
+                        <span>Primeiro Acesso? Criar Nova Senha</span>
+                      </button>
+                    )}
                   </div>
                 </form>
               </>

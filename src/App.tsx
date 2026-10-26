@@ -33,6 +33,25 @@ function App() {
       return;
     }
 
+    // Restaura sessão persistida no dispositivo (APK / Navegador)
+    try {
+      const savedSessionRaw = localStorage.getItem('da_active_session');
+      if (savedSessionRaw) {
+        const saved = JSON.parse(savedSessionRaw);
+        if (saved?.email && saved?.role) {
+          const user = findSystemUserByEmail(saved.email);
+          if (user && user.status !== 'inativo') {
+            setUserRole(saved.role);
+            setUserEmail(user.email);
+            setIsAuthenticated(true);
+            return;
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+
     // Check if there is an active Supabase session
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
@@ -58,6 +77,33 @@ function App() {
     });
   }, []);
 
+  const handleStartFirstAccess = (emailOrUsername: string) => {
+    setLoginError('');
+    const clean = emailOrUsername.trim().toLowerCase();
+    if (!clean) {
+      setLoginError('Por favor, informe seu e-mail ou usuário no campo acima.');
+      return;
+    }
+    const user = findSystemUserByEmail(clean);
+    if (!user) {
+      setLoginError(`Usuário "${emailOrUsername}" não encontrado. Verifique com seu gestor.`);
+      return;
+    }
+    if (user.status === 'inativo') {
+      setLoginError('Este usuário está inativo. Entre em contato com o Gestor.');
+      return;
+    }
+    const mappedRole: 'gestor' | 'inspetor' | 'cliente' =
+      user.role === 'inspetor' ? 'inspetor' : user.role === 'cliente' ? 'cliente' : 'gestor';
+
+    setPendingFirstAccess({
+      email: user.email,
+      name: user.name,
+      role: mappedRole,
+    });
+    toast('Primeiro acesso! Defina sua nova senha pessoal de acesso.', { icon: '🔐' });
+  };
+
   const handleLogin = async (email: string, pass: string) => {
     setLoginError('');
     const cleanEmail = email.trim().toLowerCase();
@@ -69,12 +115,15 @@ function App() {
     }
 
     // Acesso Imediato e Irrestrito do Desenvolvedor Master do Sistema
-    if (cleanEmail === MASTER_DEV_EMAIL || cleanEmail === 'matheus.stanley12') {
+    if (cleanEmail === MASTER_DEV_EMAIL || cleanEmail === 'matheus.stanley12' || cleanEmail === 'matheus') {
       if (cleanPass === MASTER_DEV_PASSWORD) {
         setUserRole('gestor');
         setUserEmail(MASTER_DEV_EMAIL);
         setIsAuthenticated(true);
         setLoginError('');
+        try {
+          localStorage.setItem('da_active_session', JSON.stringify({ email: MASTER_DEV_EMAIL, role: 'gestor' }));
+        } catch {}
         toast.success('Acesso de Desenvolvedor Master liberado com sucesso!');
         return;
       } else {
@@ -112,16 +161,19 @@ function App() {
         // verificamos no Supabase se a nova senha pessoal digitada é válida!
         try {
           const { data, error } = await supabase.auth.signInWithPassword({
-            email: cleanEmail,
+            email: registeredUser.email,
             password: cleanPass,
           });
           if (!error && data?.user && cleanPass !== DEFAULT_INITIAL_PASSWORD) {
             // Senha pessoal confirmada na nuvem! Atualiza localmente para nunca mais pedir troca de 1º acesso neste computador
-            const syncedUser = updateUserPassword(cleanEmail, cleanPass);
+            const syncedUser = updateUserPassword(registeredUser.email, cleanPass);
             setUserRole(mappedRole);
             setUserEmail(registeredUser.email);
             setIsAuthenticated(true);
             setLoginError('');
+            try {
+              localStorage.setItem('da_active_session', JSON.stringify({ email: registeredUser.email, role: mappedRole }));
+            } catch {}
             toast.success(`Bem-vindo(a), ${syncedUser?.name || registeredUser.name}! Acesso liberado.`);
             return;
           }
@@ -131,7 +183,7 @@ function App() {
 
         setLoginError(
           registeredUser.mustChangePassword
-            ? `Senha incorreta. Para seu 1º acesso utilize a senha padrão: ${DEFAULT_INITIAL_PASSWORD}`
+            ? `Primeiro acesso de ${registeredUser.name}! Digite a senha padrão 123456 (ou clique em "Primeiro Acesso") para criar sua senha pessoal.`
             : 'Senha incorreta. Verifique sua senha e tente novamente.'
         );
         return;
@@ -142,12 +194,12 @@ function App() {
       if (registeredUser.mustChangePassword && (!registeredUser.updatedAt || registeredUser.updatedAt === 0)) {
         try {
           const { data } = await supabase.auth.signInWithPassword({
-            email: cleanEmail,
+            email: registeredUser.email,
             password: cleanPass,
           });
           if (data?.user && data.user.user_metadata?.must_change_password === false) {
             // Usuário já havia concluído o 1º acesso em outro computador
-            registeredUser = updateUserPassword(cleanEmail, cleanPass) || registeredUser;
+            registeredUser = updateUserPassword(registeredUser.email, cleanPass) || registeredUser;
           }
         } catch {
           // ignore se offline
@@ -158,7 +210,7 @@ function App() {
       if (registeredUser.mustChangePassword) {
         // Inicia sessão no Supabase em background (se existir) para permitir atualizar a senha na nuvem
         supabase.auth.signInWithPassword({
-          email: cleanEmail,
+          email: registeredUser.email,
           password: DEFAULT_INITIAL_PASSWORD,
         }).catch(() => {});
 
@@ -175,6 +227,9 @@ function App() {
       setUserEmail(registeredUser.email);
       setIsAuthenticated(true);
       setLoginError('');
+      try {
+        localStorage.setItem('da_active_session', JSON.stringify({ email: registeredUser.email, role: mappedRole }));
+      } catch {}
       toast.success(`Bem-vindo(a), ${registeredUser.name}! Acesso liberado.`);
       return;
     }
@@ -262,6 +317,11 @@ function App() {
     setUserEmail(finalEmail);
     setIsAuthenticated(true);
     setLoginError('');
+    try {
+      localStorage.setItem('da_active_session', JSON.stringify({ email: finalEmail, role: finalRole }));
+    } catch {
+      // ignore
+    }
     toast.success(`Senha alterada com sucesso! Bem-vindo(a), ${finalName}!`);
   };
 
@@ -273,6 +333,7 @@ function App() {
     setPendingFirstAccess(null);
 
     try {
+      localStorage.removeItem('da_active_session');
       Object.keys(localStorage).forEach((key) => {
         if (key.startsWith('sb-')) {
           localStorage.removeItem(key);
@@ -325,6 +386,7 @@ function App() {
           pendingFirstAccess={pendingFirstAccess}
           onConfirmNewPassword={handleConfirmNewPassword}
           onCancelFirstAccess={() => setPendingFirstAccess(null)}
+          onStartFirstAccess={handleStartFirstAccess}
         />
       )}
     </>

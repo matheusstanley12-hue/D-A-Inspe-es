@@ -424,7 +424,7 @@ export interface SystemUser {
 export const MASTER_DEV_EMAIL = 'matheus.stanley12@gmail.com';
 export const MASTER_DEV_PASSWORD = '35215415';
 
-const DEFAULT_SYSTEM_USERS: SystemUser[] = [
+export const DEFAULT_SYSTEM_USERS: SystemUser[] = [
   {
     id: 'usr_1',
     name: 'Matheus Stanley',
@@ -434,6 +434,56 @@ const DEFAULT_SYSTEM_USERS: SystemUser[] = [
     status: 'ativo',
     mustChangePassword: false,
     updatedAt: 1,
+  },
+  {
+    id: 'usr_1792782362978',
+    name: 'Bruno Ribeiro',
+    email: 'bruno.ribeiro@deainspecoes.com.br',
+    password: DEFAULT_INITIAL_PASSWORD,
+    role: 'inspetor',
+    status: 'ativo',
+    mustChangePassword: true,
+    updatedAt: 1792782362978,
+  },
+  {
+    id: 'usr_1792780650649',
+    name: 'Yuri Duarte',
+    email: 'yuri.duarte@deainspecoes.com.br',
+    password: DEFAULT_INITIAL_PASSWORD,
+    role: 'gestor',
+    status: 'ativo',
+    mustChangePassword: true,
+    updatedAt: 1793041336685,
+  },
+  {
+    id: 'usr_1792782317781',
+    name: 'Augusto',
+    email: 'contato@deainspecoes.com.br',
+    password: DEFAULT_INITIAL_PASSWORD,
+    role: 'gestor',
+    status: 'ativo',
+    mustChangePassword: true,
+    updatedAt: 1792782317781,
+  },
+  {
+    id: 'usr_1792782337473',
+    name: 'Fabio',
+    email: 'fabio.reis@deainspecoes.com.br',
+    password: DEFAULT_INITIAL_PASSWORD,
+    role: 'gestor',
+    status: 'ativo',
+    mustChangePassword: true,
+    updatedAt: 1792782337473,
+  },
+  {
+    id: 'usr_inspetor_default',
+    name: 'Inspetor D&A',
+    email: 'inspetor@deainspecoes.com.br',
+    password: DEFAULT_INITIAL_PASSWORD,
+    role: 'inspetor',
+    status: 'ativo',
+    mustChangePassword: true,
+    updatedAt: 0,
   },
   {
     id: 'usr_admin',
@@ -541,7 +591,7 @@ export function saveSystemUsers(users: SystemUser[], replaceOnServer = true, del
 export function findSystemUserByEmail(emailOrUsername: string): SystemUser | undefined {
   const clean = emailOrUsername.trim().toLowerCase();
   if (!clean) return undefined;
-  if (clean === MASTER_DEV_EMAIL || clean === 'matheus.stanley12') {
+  if (clean === MASTER_DEV_EMAIL || clean === 'matheus.stanley12' || clean === 'matheus') {
     return {
       id: 'usr_1',
       name: 'Matheus Stanley',
@@ -553,10 +603,23 @@ export function findSystemUserByEmail(emailOrUsername: string): SystemUser | und
       updatedAt: 1,
     };
   }
-  return getSystemUsers().find(u => {
-    const uEmail = u.email.trim().toLowerCase();
+  const allUsers = getSystemUsers();
+  // 1. Busca por correspondência exata de e-mail ou prefixo de login (antes do @)
+  const exact = allUsers.find(u => {
+    const uEmail = (u.email || '').trim().toLowerCase();
     const uLogin = uEmail.split('@')[0];
     return uEmail === clean || uLogin === clean;
+  });
+  if (exact) return exact;
+
+  // 2. Busca por nome completo ou parcial (ex: "Bruno", "Bruno Ribeiro")
+  return allUsers.find(u => {
+    const uName = (u.name || '').trim().toLowerCase();
+    const uEmail = (u.email || '').trim().toLowerCase();
+    return (
+      uName === clean ||
+      (clean.length >= 3 && (uName.startsWith(clean) || uEmail.startsWith(clean)))
+    );
   });
 }
 
@@ -641,13 +704,15 @@ const DEFAULT_SERVER_URLS = [
   typeof window !== 'undefined' && window.location.origin.startsWith('http') && !window.location.origin.includes('localhost')
     ? `${window.location.origin}/api/sync`
     : null,
+  'http://10.10.131.201:5173/api/sync',
   'http://10.10.131.136:5173/api/sync',
   'http://10.10.131.94:5173/api/sync',
+  'http://10.0.2.2:5173/api/sync',
   'http://localhost:5173/api/sync',
 ].filter(Boolean) as string[];
 
 export function getSyncServerUrl(): string {
-  return localStorage.getItem('da_sync_server_url') || 'http://10.10.131.136:5173';
+  return localStorage.getItem('da_sync_server_url') || 'http://10.10.131.201:5173';
 }
 
 export function setSyncServerUrl(url: string): void {
@@ -688,7 +753,7 @@ export async function pushSyncToServer(payload: {
   for (const url of endpoints) {
     try {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 2500);
+      const timer = setTimeout(() => controller.abort(), 1200);
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -713,7 +778,7 @@ export async function syncFromServer(): Promise<boolean> {
   for (const url of endpoints) {
     try {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 2500);
+      const timer = setTimeout(() => controller.abort(), 1200);
       const res = await fetch(url, { signal: controller.signal });
       clearTimeout(timer);
       if (res.ok) {
