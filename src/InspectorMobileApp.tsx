@@ -1,9 +1,15 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   MapPin, Navigation, Camera, DollarSign, CheckCircle, Clock, 
   ChevronRight, LogOut, Coffee, FileText, FilePlus, Folder, ArrowLeft, 
   Paperclip, Video, X, Check, Upload, Download, Eye, Home, Truck, RefreshCw, HelpCircle, Edit3, Wifi
 } from 'react-feather';
+import ModernGpsMap, { 
+  type MapPoint, 
+  resolveOrderCoordinates, 
+  openGoogleMapsTurnByTurn, 
+  openWazeTurnByTurn 
+} from './components/ModernGpsMap';
 import { format } from 'date-fns';
 import { generateCorporateFormResponsePDF } from './utils/pdfHeader';
 import toast from 'react-hot-toast';
@@ -361,6 +367,25 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
   // Clientes e Ordens de Serviço reais sincronizadas com o Gestor
   const [clientsList, setClientsList] = useState<SystemClient[]>(() => getClients());
   const [ordersList, setOrdersList] = useState<ServiceOrder[]>(() => getServiceOrders());
+  const [showGpsMap, setShowGpsMap] = useState<boolean>(true);
+
+  // Mapeamento dinâmico de coordenadas para mapa GPS de alta precisão
+  const mapPoints: MapPoint[] = useMemo(() => {
+    return ordersList.map((order, idx) => {
+      const coords = resolveOrderCoordinates(order.location || order.client, idx);
+      return {
+        id: order.id,
+        name: order.client,
+        address: order.location || order.client,
+        coords: coords,
+        type: 'cliente',
+        status: order.status || 'Agendada',
+        orderCode: order.code,
+        orderType: order.type,
+        time: order.StartTime
+      };
+    });
+  }, [ordersList]);
 
   // Assinatura do Inspetor (compartilhada entre formulário dinâmico e O.S. da rota)
   const [inspectorSignature, setInspectorSignature] = useState<string>('');
@@ -1615,6 +1640,49 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
                 <ChevronRight size={18} className="text-white/80" />
               </button>
 
+              {/* CARD DE GPS MODERNO ESTILO GOOGLE MAPS */}
+              <div className="bg-white rounded-2xl p-3 border border-slate-200 shadow-sm overflow-hidden">
+                <div className="flex items-center justify-between mb-2 px-1">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold text-xs shadow-xs">
+                      <Navigation size={16} />
+                    </div>
+                    <div>
+                      <h3 className="text-xs font-black text-slate-900 leading-tight">GPS & Rota em Tempo Real</h3>
+                      <p className="text-[10px] text-slate-500 font-semibold">Google Maps Oficial • Satélite • Trânsito & Clientes</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowGpsMap(!showGpsMap)}
+                    className="text-[11px] font-extrabold text-blue-600 hover:text-blue-800 bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-100 cursor-pointer"
+                  >
+                    {showGpsMap ? 'Ocultar Mapa' : 'Abrir Mapa GPS'}
+                  </button>
+                </div>
+
+                {showGpsMap && (
+                  <div className="mt-2 rounded-xl overflow-hidden border border-slate-200 shadow-inner">
+                    <ModernGpsMap
+                      points={mapPoints}
+                      height="350px"
+                      enableLiveGps={true}
+                      showHud={true}
+                      showLayerToggle={true}
+                      showNavigationControls={true}
+                      onStartInspection={(pt) => {
+                        const targetOrder = ordersList.find(o => o.id === pt.id);
+                        if (targetOrder) {
+                          handleStartInspection(targetOrder);
+                        } else {
+                          toast.success(`Destino selecionado: ${pt.name}`);
+                        }
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+
               {/* Card de Resumo do Dia */}
               <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs flex items-center justify-between">
                 <div>
@@ -1681,6 +1749,34 @@ export default function InspectorMobileApp({ onLogout, userEmail }: { onLogout: 
                           <p className="text-[11px] font-bold text-slate-500 mt-0.5">
                             {order.code} • {order.type} {order.location ? `• ${order.location}` : ''}
                           </p>
+
+                          {/* Acesso Rápido a Navegação GPS Oficial (Google Maps e Waze) */}
+                          <div className="mt-2.5 flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const coords = resolveOrderCoordinates(order.location || order.client);
+                                openGoogleMapsTurnByTurn(order.location ? `${order.location}` : coords);
+                              }}
+                              className="flex-1 bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-extrabold py-2 px-2.5 rounded-xl flex items-center justify-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                              title="Abrir no Google Maps com GPS passo a passo"
+                            >
+                              <Navigation size={12} className="text-blue-400" />
+                              <span>Google Maps</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const coords = resolveOrderCoordinates(order.location || order.client);
+                                openWazeTurnByTurn(order.location ? `${order.location}` : coords);
+                              }}
+                              className="bg-[#33ccff] hover:bg-[#20b8eb] text-slate-950 text-[11px] font-extrabold py-2 px-3 rounded-xl flex items-center justify-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                              title="Abrir rota no Waze"
+                            >
+                              <MapPin size={12} className="text-slate-950" />
+                              <span>Waze</span>
+                            </button>
+                          </div>
 
                           {!isDone && !isStarted && (
                             <button 

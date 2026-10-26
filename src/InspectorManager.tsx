@@ -46,16 +46,27 @@ export interface Inspector {
   trips: Trip[];
 }
 
-const createPinIcon = (color: string) => L.divIcon({
+const createPinIcon = (color: string, label?: string) => L.divIcon({
   className: 'custom-pin-icon',
-  html: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="${color}" width="32px" height="32px" style="transform: translate(-16px, -32px); filter: drop-shadow(1px 1px 2px rgba(0,0,0,0.4));"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>`,
+  html: `
+    <div style="position: relative; transform: translate(-16px, -38px); filter: drop-shadow(0 6px 12px rgba(0,0,0,0.35)); cursor: pointer;">
+      <svg width="32" height="40" viewBox="0 0 32 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M16 0C7.16344 0 0 7.16344 0 16C0 26 16 40 16 40C16 40 32 26 32 16C32 7.16344 24.8366 0 16 0Z" fill="${color}"/>
+        <circle cx="16" cy="16" r="8" fill="#ffffff"/>
+      </svg>
+      <div style="position: absolute; top: 10px; left: 8px; color: ${color}; font-size: 10px; font-weight: 900; line-height: 1; text-align: center; width: 16px;">
+        ${label || '📍'}
+      </div>
+    </div>
+  `,
   iconSize: [0, 0],
   iconAnchor: [0, 0],
-  popupAnchor: [0, -32]
+  popupAnchor: [0, -38]
 });
 
-const startIcon = createPinIcon('#2563eb'); // Blue
-const destIcon = createPinIcon('#f97316');  // Orange
+const startIcon = createPinIcon('#2563eb', '🏢'); // Blue Sede
+const destIcon = createPinIcon('#059669', '✓');   // Green Destino
+const transitIcon = createPinIcon('#f59e0b', '📍'); // Amber Waypoint
 
 let DefaultIcon = L.icon({
     iconUrl: icon,
@@ -119,6 +130,7 @@ export default function InspectorManager() {
   const [expenses, setExpenses] = useState<InspectorExpense[]>(() => getExpenses());
   const [clientsList, setClientsList] = useState<SystemClient[]>(() => getClients());
   const [selectedReceiptPreview, setSelectedReceiptPreview] = useState<string | null>(null);
+  const [managerMapLayer, setManagerMapLayer] = useState<'streets' | 'hybrid'>('streets');
 
   useEffect(() => {
     const syncAll = () => {
@@ -671,45 +683,83 @@ export default function InspectorManager() {
 
                             </div>
 
-                            {/* Mapa Incorporado */}
-                            <div className="h-64 lg:h-full rounded-lg overflow-hidden border border-gray-300 shadow-inner relative min-h-[300px]">
+                            {/* Mapa Incorporado Moderno (Estilo Google Maps) */}
+                            <div className="h-64 lg:h-full rounded-2xl overflow-hidden border border-slate-300 shadow-md relative min-h-[300px]">
                               <MapContainer 
                                 center={trip.coords[0] as [number, number]} 
                                 zoom={13} 
                                 className="w-full h-full z-0"
                               >
                                 <TileLayer
-                                  attribution='&copy; OSM'
-                                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                                  attribution='&copy; Google Maps'
+                                  url={managerMapLayer === 'streets' 
+                                    ? "https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}" 
+                                    : "https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}"}
+                                  maxZoom={20}
                                 />
                                 {trip.coords.map((coord, idx) => (
                                   <Marker 
                                     key={idx} 
                                     position={coord as [number, number]}
-                                    icon={idx === 0 ? startIcon : destIcon}
+                                    icon={idx === 0 ? startIcon : idx === trip.coords.length - 1 ? destIcon : transitIcon}
                                   >
-                                    <Popup>{trip.waypoints[idx]}</Popup>
+                                    <Popup>
+                                      <div className="font-sans text-xs font-bold p-1">
+                                        <span className="text-blue-600 block text-[10px] uppercase font-black">
+                                          {idx === 0 ? 'Origem' : idx === trip.coords.length - 1 ? 'Destino Final' : `Parada ${idx}`}
+                                        </span>
+                                        {trip.waypoints[idx]}
+                                      </div>
+                                    </Popup>
                                   </Marker>
                                 ))}
+                                {/* Efeito de halo/brilho no trajeto */}
                                 <Polyline 
                                   positions={trip.coords as [number, number][]} 
-                                  color={trip.status === 'completed' ? "#059669" : "#2563eb"} 
+                                  color="#1e3a8a" 
+                                  weight={7}
+                                  opacity={0.3}
+                                />
+                                <Polyline 
+                                  positions={trip.coords as [number, number][]} 
+                                  color={trip.status === 'completed' ? "#10b981" : "#2563eb"} 
                                   weight={4}
-                                  dashArray={trip.status === 'completed' ? "" : "10, 10"}
+                                  dashArray={trip.status === 'completed' ? "" : "8, 8"}
                                 />
                               </MapContainer>
                               
-                              <div className="absolute top-2 right-2 z-10 flex gap-2">
-                                <div className="bg-white/90 backdrop-blur px-3 py-1.5 rounded-full shadow border border-gray-200 flex items-center">
-                                  <Map size={14} className="text-blue-600 mr-2" />
-                                  <span className="text-xs font-bold text-gray-700">Rota Completa Registrada</span>
-                                </div>
+                              <div className="absolute top-2.5 right-2.5 z-10 flex items-center gap-1.5 flex-wrap justify-end">
+                                {/* Botão Seletor de Camada: Google Ruas / Google Satélite */}
+                                <button
+                                  type="button"
+                                  onClick={() => setManagerMapLayer(managerMapLayer === 'streets' ? 'hybrid' : 'streets')}
+                                  className="bg-white/95 backdrop-blur-md px-2.5 py-1.5 rounded-xl shadow-md border border-slate-200 text-xs font-extrabold text-slate-800 hover:bg-white transition-all cursor-pointer"
+                                  title="Alternar entre Ruas e Satélite"
+                                >
+                                  {managerMapLayer === 'streets' ? '🛰️ Satélite' : '🗺️ Ruas'}
+                                </button>
+
+                                {/* Botão Abrir Rota no Google Maps */}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const origin = `${trip.coords[0][0]},${trip.coords[0][1]}`;
+                                    const dest = `${trip.coords[trip.coords.length - 1][0]},${trip.coords[trip.coords.length - 1][1]}`;
+                                    window.open(`https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${dest}&travelmode=driving`, '_blank');
+                                  }}
+                                  className="bg-slate-900/90 backdrop-blur-md px-2.5 py-1.5 rounded-xl shadow-md border border-white/20 text-white text-xs font-extrabold hover:bg-slate-900 transition-all flex items-center gap-1 cursor-pointer"
+                                  title="Abrir no Google Maps oficial"
+                                >
+                                  <Map size={13} className="text-blue-400" />
+                                  <span>Google</span>
+                                </button>
+
                                 <button 
                                   onClick={() => setFullscreenMapTrip(trip)}
-                                  className="bg-white/90 backdrop-blur p-1.5 rounded-full shadow border border-gray-200 text-gray-700 hover:text-blue-600 hover:bg-white transition-colors"
-                                  title="Expandir Mapa"
+                                  className="bg-white/95 backdrop-blur-md p-2 rounded-xl shadow-md border border-slate-200 text-slate-700 hover:text-blue-600 hover:bg-white transition-colors cursor-pointer"
+                                  title="Expandir Mapa em Tela Cheia"
                                 >
-                                  <Maximize2 size={16} />
+                                  <Maximize2 size={15} />
                                 </button>
                               </div>
                             </div>
@@ -965,15 +1015,42 @@ export default function InspectorManager() {
         <div className="fixed inset-0 bg-black/80 z-[100] flex flex-col animate-[fadeIn_0.2s_ease-out]">
           <div className="p-4 flex justify-between items-center bg-white shadow-sm z-[101]">
             <div>
-              <h2 className="font-bold text-xl text-gray-900">Mapa de Rota - Visão Expandida</h2>
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-blue-600 animate-pulse"></span>
+                <h2 className="font-bold text-xl text-gray-900">Mapa GPS da Rota - Estilo Google Maps</h2>
+              </div>
               <p className="text-sm text-gray-500">{fullscreenMapTrip.waypoints.join(' ➔ ')}</p>
             </div>
-            <button 
-              onClick={() => setFullscreenMapTrip(null)}
-              className="p-2 bg-gray-100 hover:bg-gray-200 rounded-full transition-colors"
-            >
-              <X size={24} className="text-gray-700" />
-            </button>
+            
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setManagerMapLayer(managerMapLayer === 'streets' ? 'hybrid' : 'streets')}
+                className="bg-slate-100 hover:bg-slate-200 px-3 py-2 rounded-xl text-xs font-bold text-slate-800 transition-colors cursor-pointer"
+              >
+                {managerMapLayer === 'streets' ? '🛰️ Google Satélite' : '🗺️ Google Ruas'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const origin = `${fullscreenMapTrip.coords[0][0]},${fullscreenMapTrip.coords[0][1]}`;
+                  const dest = `${fullscreenMapTrip.coords[fullscreenMapTrip.coords.length - 1][0]},${fullscreenMapTrip.coords[fullscreenMapTrip.coords.length - 1][1]}`;
+                  window.open(`https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${dest}&travelmode=driving`, '_blank');
+                }}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer"
+              >
+                <Map size={14} />
+                <span>Abrir no Google Maps</span>
+              </button>
+
+              <button 
+                onClick={() => setFullscreenMapTrip(null)}
+                className="p-2 bg-gray-100 hover:bg-gray-200 rounded-full transition-colors cursor-pointer"
+              >
+                <X size={24} className="text-gray-700" />
+              </button>
+            </div>
           </div>
           
           <div className="flex-1 w-full relative z-[100]">
@@ -983,23 +1060,39 @@ export default function InspectorManager() {
               className="w-full h-full"
             >
               <TileLayer
-                attribution='&copy; OSM'
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                attribution='&copy; Google Maps'
+                url={managerMapLayer === 'streets' 
+                  ? "https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}" 
+                  : "https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}"}
+                maxZoom={20}
               />
               {fullscreenMapTrip.coords.map((coord: any, idx: number) => (
                 <Marker 
                   key={idx} 
                   position={coord as [number, number]}
-                  icon={idx === 0 ? startIcon : destIcon}
+                  icon={idx === 0 ? startIcon : idx === fullscreenMapTrip.coords.length - 1 ? destIcon : transitIcon}
                 >
-                  <Popup>{fullscreenMapTrip.waypoints[idx]}</Popup>
+                  <Popup>
+                    <div className="font-sans text-xs font-bold p-1">
+                      <span className="text-blue-600 block text-[10px] uppercase font-black">
+                        {idx === 0 ? 'Origem' : idx === fullscreenMapTrip.coords.length - 1 ? 'Destino Final' : `Parada ${idx}`}
+                      </span>
+                      {fullscreenMapTrip.waypoints[idx]}
+                    </div>
+                  </Popup>
                 </Marker>
               ))}
               <Polyline 
                 positions={fullscreenMapTrip.coords as [number, number][]} 
-                color={fullscreenMapTrip.status === 'completed' ? "#059669" : "#2563eb"} 
+                color="#1e3a8a" 
+                weight={7}
+                opacity={0.3}
+              />
+              <Polyline 
+                positions={fullscreenMapTrip.coords as [number, number][]} 
+                color={fullscreenMapTrip.status === 'completed' ? "#10b981" : "#2563eb"} 
                 weight={4}
-                dashArray={fullscreenMapTrip.status === 'completed' ? "" : "10, 10"}
+                dashArray={fullscreenMapTrip.status === 'completed' ? "" : "8, 8"}
               />
             </MapContainer>
           </div>
